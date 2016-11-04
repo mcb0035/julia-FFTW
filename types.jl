@@ -1,4 +1,5 @@
 ## FFTW Flags from fftw3.h
+import Base.show
 
 const FFTW_MEASURE         = UInt32(0)
 const FFTW_DESTROY_INPUT   = UInt32(1 << 0)
@@ -97,14 +98,14 @@ const FFTW_RODFT11 = 10
       INPLACE_OS = 1)
 
 #kernel/ifftw.h:320
-typealias crude_time Cint
+#typealias crude_time Cint
 
 #kernel/ifftw.h:84
 typealias INT Cptrdiff_t
 
 #use this instead of macros at kernel/ifftw.h:449
 intmax = typemax(Cint)
-if is(typeof(1.0), Float64)
+if typeof(1.0) === Float64
     typealias Float Float64
 elseif is(typeof(1.0), Float32)
     typealias Float Float32
@@ -116,16 +117,32 @@ typealias PlanPtr Ptr{fftw_plan_struct}
 #MINE
 immutable fftw_problem_struct end
 typealias ProbPtr Ptr{fftw_problem_struct}
-immutable fftw_print_struct end
-typealias PrintPtr Ptr{fftw_print_struct}
-immutable fftw_tensor_struct end
-typealias TensPtr Ptr{fftw_tensor_struct}
-immutable fftw_planner_struct end
-typealias PlannerPtr Ptr{fftw_planner_struct}
-stdout = unsafe_load(cglobal(:stdout, Ptr{Void}))
+#immutable fftw_print_struct end
+#typealias PrintPtr Ptr{fftw_print_struct}
+#immutable fftw_tensor_struct end
+#typealias TensPtr Ptr{fftw_tensor_struct}
+#immutable fftw_planner_struct end
+#typealias PlannerPtr Ptr{fftw_planner_struct}
+#stdout = unsafe_load(cglobal(:stdout, Ptr{Void}))
 #END MINE
 
 #types
+
+#timeval struct contains two longs
+#TODO: generalize to any machine
+#kernel/ifftw.h:341
+type crude_time
+    tv_sec::Clong
+    tv_usec::Clong
+end
+
+function Base.show(io::IO, t::crude_time)
+    println("crude_time:")
+    println(" tv_sec: $(t.tv_sec)")
+    println(" tv_usec: $(t.tv_usec)")
+end
+    
+
 #api/api.h:62
 type apiplan
     pln::PlanPtr
@@ -135,10 +152,10 @@ end
 
 #kernel/ifftw.h:363
 type opcnt
-    add::Cint
-    mul::Cint
-    fma::Cint
-    other::Cint
+    add::Cdouble
+    mul::Cdouble
+    fma::Cdouble
+    other::Cdouble
 end
 
 #kernel/ifftw.h:429
@@ -172,23 +189,41 @@ typealias md5sig NTuple{4,Cuint}
 #kernel/ifftw.h:409
 type md5
     s::md5sig
-    
     c::NTuple{64,Cuchar}
     l::Cuint
 end
     
+immutable plan_adt
+    solve::Ptr{Void}
+    awake::Ptr{Void}
+    print::Ptr{Void}
+    destroy::Ptr{Void}
+end
 
+type plan_s
+    adt::plan_adt
+    ops::opcnt
+    pcost::Cdouble
+    wakefulness::Cint
+    could_prune_now_p::Cint
+end
+
+#=
 type myFFTWPlan
     ops::opcnt
     pcost::Float32
     wakefulness::Wakefulness
     could_prune_now_p::Int16
-end
+end=#
 
 #kernel/ifftw.h:601
 type solver
     problem_kind::problems
     refcnt::Cint
+end
+
+function Base.show(io::IO, s::solver)
+    println("solver of problem kind $(s.problem_kind) with $(s.refcnt) refs")
 end
 
 #kernel/ifftw.h:623
@@ -202,6 +237,15 @@ type slvdesc
         s = new(solver(PROBLEM_UNSOLVABLE, 0), "", Cuint(0), Cint(0), Cint(0))
         return s
     end
+end
+
+function Base.show(io::IO, s::slvdesc)
+    println("slvdesc:")
+    show(s.slv)
+    println(" reg_nam: $(s.reg_nam)")
+    println(" nam_hash: $(s.nam_hash)")
+    println(" reg_id: $(s.reg_id)")
+    println(" next: $(s.next_for_same_problem_kind)")
 end
 
 function Base.copy(s::slvdesc)
@@ -230,7 +274,7 @@ end
 
 #kernel/ifftw.h:651
 bitstype 64 flags_t
-function flags_t(l::UInt64, h::UInt64, t::UInt64, u::UInt64)::flags_t
+function flags_t(l::Cuint, h::Cuint, t::Cuint, u::Cuint)::flags_t
     ll = l & (1<<20-1)
     hh = h & (1<<3-1)
     tt = t & (1<<9-1)
@@ -238,17 +282,34 @@ function flags_t(l::UInt64, h::UInt64, t::UInt64, u::UInt64)::flags_t
     return reinterpret(flags_t, (ll<<44)|(hh<<41)|(tt<<32)|(uu<<12))
 end
 
-function flag(f::flags_t, s::Symbol)::UInt64
+function flag(f::flags_t, s::Symbol)::Cuint
     ff = reinterpret(UInt64, f)
     if s == :l
-        return (ff>>>44)&(1<<20-1)
+        v = (ff>>>44)&(1<<20-1)
     elseif s == :h
-        return (ff>>>41)&(1<<3-1)
+        v = (ff>>>41)&(1<<3-1)
     elseif s == :t
-        return (ff>>>32)&(1<<9-1)
+        v = (ff>>>32)&(1<<9-1)
     elseif s == :u
-        return (ff>>>12)&(1<<20-1)
+        v = (ff>>>12)&(1<<20-1)
+    else
+        error("flag: invalid symbol")
     end
+    return Cuint(v)
+end
+
+function Base.show(io::IO, f::flags_t)
+    l = flag(f, :l)
+    h = flag(f, :h)
+    t = flag(f, :t)
+    u = flag(f, :u)
+    println("flags:")
+    ff = reinterpret(Int64, f)
+    println(" $(bits(ff))")
+    println(" l: $(bits(l)[end-19:end])")
+    println(" h: $(bits(h)[end-2:end])")
+    println(" t: $(bits(t)[end-8:end])")
+    println(" u: $(bits(u)[end-19:end])")
 end
 
 #kernel/ifftw.h:651
@@ -275,7 +336,7 @@ type solution
     flags::flags_t
 
     function solution()
-        sol = new([0, 0, 0, 0,], flags_t())
+        sol = new([0, 0, 0, 0,], flags_t(0,0,0,0))
         return sol
     end
 end
@@ -295,17 +356,33 @@ type hashtab
     nrehash::Cint
 
     #mkhashtab in kernel/planner.c:756
-    function hashtab()
-        ht = new(solution[], Cuint(0), Cuint(0), 0, 0, 0, 0, 0, 0, 0)
+#=    function hashtab()
+        ht = new(C_NULL, Cuint(0), Cuint(0), 0, 0, 0, 0, 0, 0, 0)
         hgrow(ht)
         return ht
-    end
+    end=#
 end
+
+function Base.show(io::IO, ht::hashtab)
+    println("hashtab:")
+#    local hs = ht.hashsiz
+#    local s::solution = unsafe_load(ht.solutions)
+    println(" hashsiz: $(ht.hashsiz)")
+    println(" nelem: $(ht.nelem)")
+    println(" lookup: $(ht.lookup)")
+    println(" succ_lookup: $(ht.succ_lookup)")
+    println(" lookup_iter: $(ht.lookup_iter)")
+    println(" insert: $(ht.insert)")
+    println(" insert_iter: $(ht.insert_iter)")
+    println(" insert_unknown: $(ht.insert_unknown)")
+    println(" nrehash: $(ht.nrehash)")
+end
+
 
 #kernel/ifftw.h:527
 #Julia cannot yet handle abstract types with fields so each
 #concrete problem type must have problem_kind::Cint first
-abstract problem
+#abstract problem
 
 #kernel/ifftw.h:525
 immutable problem_adt
@@ -316,9 +393,23 @@ immutable problem_adt
     destroy::Ptr{Void}
 end
 
+function Base.show(io::IO, p::problem_adt)
+    println("problem_adt:")
+    println(" problem_kind: $(p.problem_kind) ($(Cint(p.problem_kind)))")
+    println(" hash: $(p.hash)")
+    println(" zero: $(p.zero)")
+    println(" print: $(p.print)")
+    println(" destroy: $(p.destroy)")
+end
+
 #kernel/ifftw.h:527
-type problem_s
+immutable problem
     adt::Ptr{problem_adt}
+end
+
+function Base.show(io::IO, p::problem)
+    println("problem:")
+    show(unsafe_load(p.adt))
 end
     
 #kernel/ifftw.h:735
@@ -328,6 +419,14 @@ immutable planner_adt
     forget::Ptr{Void}
     exprt::Ptr{Void}
     imprt::Ptr{Void}
+end
+
+function Base.show(io::IO, adt::planner_adt)
+    println("  adt.register_solver: $(adt.register_solver)")
+    println("  adt.mkplan: $(adt.mkplan)")
+    println("  adt.forget: $(adt.forget)")
+    println("  adt.exprt: $(adt.exprt)")
+    println("  adt.imprt: $(adt.imprt)")
 end
 
 type planner
@@ -363,6 +462,92 @@ type planner
     pcost::Cdouble
     epcost::Cdouble
     nprob::Cint
+
+    function planner(p::Ptr{planner})
+        local ar = fieldnames(planner)
+        local at = [fieldtype(planner, name) for name in ar]
+        local of = [0,8,8,8,8,8,8,8,4,4,8,4,32,4,48,48,8,8,16,8,4,4,8,8,8]
+#        rv = Array{Any}(25)
+        pt = p
+        jp = new()
+        for i in 1:25 #size(ar)[1]
+            pt += of[i]  
+            println("at offset $(pt-p):")
+            println(" field: $(ar[i])")
+            println(" type: $(at[i])")
+            if at[i] <: Ptr || at[i] <: Real || at[i] == hashtab
+                v = unsafe_load(reinterpret(Ptr{at[i]}, pt))
+            elseif at[i] == NTuple{8,Cint}
+                v = tuple(unsafe_wrap(Array, reinterpret(Ptr{Cint}, pt), 8)...)
+            elseif at[i] == crude_time
+                v = crude_time(tuple(unsafe_wrap(Array, reinterpret(Ptr{Clong}, pt), 2)...)...)
+            elseif at[i] == wisdom_state_t
+                v = wisdom_state_t(unsafe_load(reinterpret(Ptr{Cint}, pt)))
+            elseif at[i] == flags_t
+                v = reinterpret(flags_t, unsafe_load(reinterpret(Ptr{UInt64}, pt)))
+            else
+                error("planner: type $(at[i]) not accounted for")
+            end
+#            rv[i] = v
+            println(" value: $v")
+            setfield!(jp, ar[i], v)
+        end
+        return jp
+    end
 end
 
+function Base.show(io::IO, p::planner)
+    local adt::planner_adt = unsafe_load(p.adt)
+    println("Planner:")
+    println(" adt: $(p.adt)")
+    println("  adt.register_solver: $(adt.register_solver)")
+    println("  adt.mkplan: $(adt.mkplan)")
+    println("  adt.forget: $(adt.forget)")
+    println("  adt.exprt: $(adt.exprt)")
+    println("  adt.imprt: $(adt.imprt)")
+    println(" hook: $(p.hook)")
+    println(" cost_hook: $(p.cost_hook)")
+    println(" wisdom_ok_hook: $(p.wisdom_ok_hook)")
+    println(" nowisdom_hook: $(p.nowisdom_hook)")
+    println(" bogosity_hook: $(p.bogosity_hook)")
+#    local n = p.nslvdesc
+#    local sd::Array{slvdesc,1} = unsafe_wrap(Array, p.slvdescs, n, false)
+#    println(" $n slvdescs:")
+#    for i in 1:n
+#        show(sd[i])
+#    end
+    println(" nslvdesc: $(p.nslvdesc)")
+    println(" slvdescsiz: $(p.slvdescsiz)")
+#=    local crn::String
+    if p.cur_reg_nam != C_NULL
+        crn = unsafe_wrap(String, p.cur_reg_nam, false)
+        println(" cur_reg_nam: $(crn)")
+    end=#
+    println(" cur_reg_id: $(p.cur_reg_id)")
+    println(" slvdescs_for_problem_kind: $(p.slvdescs_for_problem_kind)")
+    println(" wisdom_state: $(p.wisdom_state)")
+    println(" htab_blessed: $(p.htab_blessed)")
+#    show(p.htab_blessed)
+    println(" htab_unblessed: $(p.htab_unblessed)")
+#    show(p.htab_unblessed)
+    println(" nthr: $(p.nthr)")
+    show(p.flags)
+#    show(p.start_time)
+    println(" timelimit: $(p.timelimit)")
+    println(" timed_out: $(p.timed_out)")
+    println(" need_timeout_check: $(p.need_timeout_check)")
+    println(" nplan: $(p.nplan)")
+    println(" pcost: $(p.pcost)")
+    println(" epcost: $(p.epcost)")
+    println(" nprob: $(p.nprob)")
+end
 
+type problem_dft
+    super::problem
+    sz::Ptr{tensor}
+    vecsz::Ptr{tensor}
+    ri::Ptr{Cdouble}
+    ii::Ptr{Cdouble}
+    ro::Ptr{Cdouble}
+    io::Ptr{Cdouble}
+end

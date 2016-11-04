@@ -4,6 +4,9 @@
 #include <stddef.h>
 #include <math.h>
 #include <string.h>
+#include <sys/types.h>
+#include <sys/time.h>
+#include <time.h>
 
 const int N = 10;
 
@@ -73,10 +76,14 @@ typedef struct {
     double m;
 } jarrstruct;
 
+static double mysqrt(const double n) {
+    return 1.0/sqrt(n);
+}
+
 arrstruct* mkarrstruct() {
     arrstruct *x;
     x = (arrstruct*)malloc(sizeof(arrstruct));
-    x->func = sqrt;
+    x->func = mysqrt;
     x->n = 71;
     int i;
     for (i=0; i<8; ++i)
@@ -253,4 +260,12 @@ void arrtest(double *x, complex *z) {
     for (i=0; i<N; i++) {
         printf("%lf\t%lf\n", *(x+i), *(z+i));
     }
+}
+
+struct timeval timetest() {
+    struct timeval x;
+    gettimeofday(&x, 0);
+    printf("tv_sec: %ld\n", x.tv_sec);
+    printf("tv_usec: %ld\n", x.tv_usec);
+    return x;
 }

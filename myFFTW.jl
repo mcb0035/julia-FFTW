@@ -487,6 +487,6 @@ function forget(ego::planner, a::amnesia)
     return nothing
 end=#
 
-include("guru.jl")
+include("planner.jl")
 
 #end #module myFFTW

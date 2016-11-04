@@ -505,7 +505,7 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
                      Ptr{tensor},
 #                     TensPtr,
                      (Cint, Ptr{Cint}, Cint, Cint),
-                     size(dims,2), convert(Array{Cint},reshape(dims,(length(dims),1))), 2, 2)
+                     size(dims,2), convert(Array{Cint},vec(dims)), 2, 2)
 #        println("$(size(dims,2)) $dims 2 2")
 #        println("sz: $(typeof(sz))\n$sz")
 #        println("show tensor:")
@@ -526,9 +526,7 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
                      (Cint, Ptr{Cint}, Cint, Cint),
                      size(howmany,2), convert(Array{Cint},vec(howmany)), 2, 2)
         
-#                     size(howmany,2), convert(Array{Cint},reshape(howmany,(length(howmany),1))), 2, 2)
 #        println("vecsz: $(typeof(vecsz))\n$vecsz")
-#        println("show tensor:")
 #        ccall(("showtensorc99", "/home/qm4/tests/libccall.so"), Void, (Ptr{tensor},), vecsz)
 
         ri, ii = extract_reim(Cint(direction), X)
@@ -542,16 +540,25 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
 #        println("ro: $(typeof(ro))\n$ro")
 #        println("io: $(typeof(io))\n$io")
         prob = ccall(($(string(fftw,"_mkproblem_dft_d")),$lib),
-                     ProbPtr,
+                     Ptr{problem},
                      (Ptr{tensor}, Ptr{tensor}, Ptr{$Tr}, Ptr{$Tr}, Ptr{$Tr}, Ptr{$Tr}),
                      sz, vecsz, ri, ii, ro, io)
+        show(unsafe_load(prob))
+        println("manual problem_kind:")
+        pk = unsafe_load(reinterpret(Ptr{problem_adt}, prob))
+        show(pk)
+        
         
 #=        plan = ccall(($(string(fftw,"_mkapiplan")),$lib),
                      PlanPtr,
                      (Cint, Cuint, ProbPtr),
                      direction, flags, prob)=#
         plan = mkapiplan(Cint(direction), flags, prob)
-
+        println("made apiplan")
+        if (plan == C_NULL) || (plan == nothing)
+            error("mkapiplan failed")
+        end
+        a_plan = unsafe_load(unsafe_convert(Ptr{apiplan}, plan))
         #END MINE
 
 #=        plan = ccall(($(string(fftw,"_plan_guru64_dft")),$lib),
@@ -564,6 +571,7 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
         if plan == C_NULL
             error("FFTW could not create plan") # shouldn't normally happen
         end
+        println("made plan")
         return cFFTWPlan{$Tc,K,inplace,N}(plan, flags, R, X, Y)
     end
 
