@@ -215,7 +215,9 @@ abstract FFTWPlan{T<:fftwNumber,K,inplace} <: Plan{T}
 for P in (:cFFTWPlan, :rFFTWPlan, :r2rFFTWPlan) # complex, r2c/c2r, and r2r
     @eval begin
         type $P{T<:fftwNumber,K,inplace,N} <: FFTWPlan{T,K,inplace}
-            plan::PlanPtr
+#            plan::PlanPtr
+#MINE
+            plan::Ptr{apiplan}
             sz::NTuple{N, Int} # size of array on which plan operates (Int tuple)
             osz::NTuple{N, Int} # size of output array (Int tuple)
             istride::NTuple{N, Int} # strides of input
@@ -225,7 +227,8 @@ for P in (:cFFTWPlan, :rFFTWPlan, :r2rFFTWPlan) # complex, r2c/c2r, and r2r
             flags::UInt32 # planner flags
             region::Any # region (iterable) of dims that are transormed
             pinv::ScaledPlan
-            function $P(plan::PlanPtr, flags::Integer, R::Any,
+#            function $P(plan::PlanPtr, flags::Integer, R::Any,
+            function $P(plan::Ptr{apiplan}, flags::Integer, R::Any,
                         X::StridedArray{T, N}, Y::StridedArray)
                 p = new(plan, size(X), size(Y), strides(X), strides(Y),
                         alignment_of(X), alignment_of(Y), flags, R)
@@ -239,9 +242,14 @@ end
 size(p::FFTWPlan) = p.sz
 
 unsafe_convert(::Type{PlanPtr}, p::FFTWPlan) = p.plan
+#TMP
+unsafe_convert(::Type{Ptr{apiplan}}, p::FFTWPlan) = p.plan
 
 destroy_plan{T<:fftwDouble}(plan::FFTWPlan{T}) =
-    ccall((:fftw_destroy_plan,libfftw), Void, (PlanPtr,), plan)
+#    ccall((:fftw_destroy_plan,libfftw), Void, (PlanPtr,), plan)
+#TMP
+    ccall((:fftw_destroy_plan,libfftw), Void, (Ptr{apiplan},), plan)
+    
 
 destroy_plan{T<:fftwSingle}(plan::FFTWPlan{T}) =
     ccall((:fftwf_destroy_plan,libfftwf), Void, (PlanPtr,), plan)
@@ -292,7 +300,8 @@ end
 
 # The sprint_plan function was released in FFTW 3.3.4
 sprint_plan_{T<:fftwDouble}(plan::FFTWPlan{T}) =
-    ccall((:fftw_sprint_plan,libfftw), Ptr{UInt8}, (PlanPtr,), plan)
+#    ccall((:fftw_sprint_plan,libfftw), Ptr{UInt8}, (PlanPtr,), plan)
+    ccall((:fftw_sprint_plan,libfftw), Ptr{UInt8}, (Ptr{apiplan},), Ref(plan.plan))
 sprint_plan_{T<:fftwSingle}(plan::FFTWPlan{T}) =
     ccall((:fftwf_sprint_plan,libfftwf), Ptr{UInt8}, (PlanPtr,), plan)
 function sprint_plan(plan::FFTWPlan)
@@ -366,7 +375,9 @@ colmajorstrides(sz) = isempty(sz) ? () : (1,cumprod(Int[sz[1:end-1]...])...)
 # Execute
 
 unsafe_execute!{T<:fftwDouble}(plan::FFTWPlan{T}) =
-    ccall((:fftw_execute,libfftw), Void, (PlanPtr,), plan)
+#    ccall((:fftw_execute,libfftw), Void, (PlanPtr,), plan)
+#TMP
+    ccall((:fftw_execute,libfftw), Void, (Ptr{apiplan},), plan)
 
 unsafe_execute!{T<:fftwSingle}(plan::FFTWPlan{T}) =
     ccall((:fftwf_execute,libfftwf), Void, (PlanPtr,), plan)
@@ -374,7 +385,9 @@ unsafe_execute!{T<:fftwSingle}(plan::FFTWPlan{T}) =
 unsafe_execute!{T<:fftwDouble}(plan::cFFTWPlan{T},
                                X::StridedArray{T}, Y::StridedArray{T}) =
     ccall((:fftw_execute_dft,libfftw), Void,
-          (PlanPtr,Ptr{T},Ptr{T}), plan, X, Y)
+#          (PlanPtr,Ptr{T},Ptr{T}), plan, X, Y)
+#TMP
+          (Ptr{apiplan},Ptr{T},Ptr{T}), plan, X, Y)
 
 unsafe_execute!{T<:fftwSingle}(plan::cFFTWPlan{T},
                                X::StridedArray{T}, Y::StridedArray{T}) =
@@ -506,6 +519,9 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
 #                     TensPtr,
                      (Cint, Ptr{Cint}, Cint, Cint),
                      size(dims,2), convert(Array{Cint},vec(dims)), 2, 2)
+
+#        print_with_color(:green,"sz:\n") 
+#        show(sz)
 #        println("$(size(dims,2)) $dims 2 2")
 #        println("sz: $(typeof(sz))\n$sz")
 #        println("show tensor:")
@@ -525,7 +541,9 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
                      Ptr{tensor},
                      (Cint, Ptr{Cint}, Cint, Cint),
                      size(howmany,2), convert(Array{Cint},vec(howmany)), 2, 2)
-        
+
+#        print_with_color(:green,"vecsz:\n")
+#        show(vecsz)
 #        println("vecsz: $(typeof(vecsz))\n$vecsz")
 #        ccall(("showtensorc99", "/home/qm4/tests/libccall.so"), Void, (Ptr{tensor},), vecsz)
 
@@ -540,25 +558,47 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
 #        println("ro: $(typeof(ro))\n$ro")
 #        println("io: $(typeof(io))\n$io")
         prob = ccall(($(string(fftw,"_mkproblem_dft_d")),$lib),
-                     Ptr{problem},
+                     Ptr{problem_dft},
                      (Ptr{tensor}, Ptr{tensor}, Ptr{$Tr}, Ptr{$Tr}, Ptr{$Tr}, Ptr{$Tr}),
                      sz, vecsz, ri, ii, ro, io)
-        show(unsafe_load(prob))
-        println("manual problem_kind:")
-        pk = unsafe_load(reinterpret(Ptr{problem_adt}, prob))
-        show(pk)
-        
-        
-#=        plan = ccall(($(string(fftw,"_mkapiplan")),$lib),
-                     PlanPtr,
-                     (Cint, Cuint, ProbPtr),
-                     direction, flags, prob)=#
-        plan = mkapiplan(Cint(direction), flags, prob)
-        println("made apiplan")
-        if (plan == C_NULL) || (plan == nothing)
+#TMP
+#        print_with_color(:green,"problem located at $prob\n")
+#        show(unsafe_load(prob))
+#        dftprob = unsafe_load(convert(Ptr{problem_dft}, prob))
+#        print_with_color(:green,"problem_dft:\n")
+#        show(dftprob)
+        print_with_color(:green,$(string("library: ",fftw," ",lib,"\n")))
+
+#=        aplan = ccall(($(string(fftw,"_mkapiplan")),$lib),
+                      Ptr{apiplan},
+                      (Cint, Cuint, Ptr{problem_dft}),
+                      direction, flags | PRESERVE_INPUT, prob)=#
+#        print_with_color(:green,"apiplan from C:\n")
+#        show(aplan)
+#        testplan(aplan)
+
+        aplan = mkapiplan(Cint(direction), flags, prob)
+
+#        if (aplan.pln == C_NULL) || (aplan == nothing)
+        if  (aplan == C_NULL) || (unsafe_load(aplan).pln == C_NULL )
             error("mkapiplan failed")
         end
-        a_plan = unsafe_load(unsafe_convert(Ptr{apiplan}, plan))
+        set_timelimit($Tr, NO_TIMELIMIT)
+        if aplan == C_NULL
+            error("FFTW could not create plan") # shouldn't normally happen
+        end
+#TMP
+        print_with_color(:green,"made apiplan\n")
+#        ccall((:fftw_execute_dft,libfftw), Void,
+#              (Ptr{apiplan},Ptr{$Tc},Ptr{$Tc}), Ref(aplan), X, Y)
+#        ccall((:fftw_execute,libfftw), Void,
+#              (Ptr{apiplan},), Ref(aplan))
+#        show(aplan)
+#        print_with_color(:green,"my plan:\n")
+#        show(myaplan)
+#        show(Y)
+#
+        return cFFTWPlan{$Tc,K,inplace,N}(aplan, flags, R, X, Y)
         #END MINE
 
 #=        plan = ccall(($(string(fftw,"_plan_guru64_dft")),$lib),
@@ -566,13 +606,13 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
                      (Int32, Ptr{Int}, Int32, Ptr{Int},
                       Ptr{$Tc}, Ptr{$Tc}, Int32, UInt32),
                      size(dims,2), dims, size(howmany,2), howmany,
-                     X, Y, direction, flags)=#
+                     X, Y, direction, flags)
         set_timelimit($Tr, NO_TIMELIMIT)
         if plan == C_NULL
             error("FFTW could not create plan") # shouldn't normally happen
         end
-        println("made plan")
-        return cFFTWPlan{$Tc,K,inplace,N}(plan, flags, R, X, Y)
+        print_with_color(:green,"made plan\n")
+        return cFFTWPlan{$Tc,K,inplace,N}(plan, flags, R, X, Y)=#
     end
 
     @eval function (::Type{rFFTWPlan{$Tr,$FORWARD,inplace,N}}){inplace,N}(X::StridedArray{$Tr,N},

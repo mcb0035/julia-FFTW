@@ -7,6 +7,8 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <time.h>
+#include <fftw3.h>
+#include <api.h>
 
 const int N = 10;
 
@@ -269,3 +271,84 @@ struct timeval timetest() {
     printf("tv_usec: %ld\n", x.tv_usec);
     return x;
 }
+
+typedef struct {
+    int a;
+    double b;
+} A;
+
+A* mkA() {
+    A* rv = (A*)malloc(sizeof(A));
+    rv->a = 2;
+    rv->b = 3.0;
+    return rv;
+}
+
+void showA(A* x) {
+    printf("struct A:\n");
+    printf("A(%d,%lf)\n", x->a, x->b);
+}
+
+typedef struct {
+    A a;
+    A b;
+    int c;
+} B;
+
+B* mkB() {
+    A a = {2, 3.0};
+    A b = {4, 5.0};
+    B* rv = (B*)malloc(sizeof(B));
+    rv->a = a;
+    rv->b = b;
+    rv->c = 6;
+//    B rv = {a, b, 6};
+    return rv;
+}
+
+void pA() {
+    A* x = mkA();
+    printf("address of x:    %p\n", x);
+    printf("address of x->a: %p\n", &(x->a));
+    printf("address of x->b: %p\n", &(x->b));
+    A y = {4, 5.0};
+    printf("address of y:    %p\n", &y);
+    printf("address of y.a:  %p\n", &(y.a));
+    printf("address of y.b:  %p\n", &(y.b));
+}
+
+void rA(A* x) {
+    printf("address of x:    %p\n", x);
+    printf("address of x->a: %p\n", &(x->a));
+    printf("address of x->b: %p\n", &(x->b));
+}
+
+void fftwsizes() {
+    printf("size of apiplan:     %u\n", sizeof(fftw_plan_s));
+//    printf("size of plan:        %u\n", sizeof(plan));
+//    printf("size of plan_dft:    %u\n", sizeof(plan_dft));
+//    printf("size of problem:     %u\n", sizeof(problem));
+//    printf("size of problem_dft: %u\n", sizeof(problem_dft));
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,5 +1,8 @@
 ## FFTW Flags from fftw3.h
 import Base.show
+import Base.==
+
+export problems, Wakefulness, Hashtable_info, amnesia, wisdom_state_t, cost_kind, inplace_kind, printer, crude_time, iodim, tensor, problem_adt, problem, problem_dft, opcnt, md5, plan_adt, plan, plan_dft, probs, plans, apiplan, solver_adt, solver, slvdesc, flags_t, flag, solution, hashtab, planner_adt, planner 
 
 const FFTW_MEASURE         = UInt32(0)
 const FFTW_DESTROY_INPUT   = UInt32(1 << 0)
@@ -128,10 +131,19 @@ typealias ProbPtr Ptr{fftw_problem_struct}
 
 #types
 
+type printer
+    print::Ptr{Void}
+    vprint::Ptr{Void}
+    putchr::Ptr{Void}
+    cleanup::Ptr{Void}
+    indent::Cint
+    indent_incr::Cint
+end
+
 #timeval struct contains two longs
 #TODO: generalize to any machine
 #kernel/ifftw.h:341
-type crude_time
+immutable crude_time
     tv_sec::Clong
     tv_usec::Clong
 end
@@ -141,21 +153,9 @@ function Base.show(io::IO, t::crude_time)
     println(" tv_sec: $(t.tv_sec)")
     println(" tv_usec: $(t.tv_usec)")
 end
-    
 
-#api/api.h:62
-type apiplan
-    pln::PlanPtr
-    prb::ProbPtr
-    sign::Cint
-end
-
-#kernel/ifftw.h:363
-type opcnt
-    add::Cdouble
-    mul::Cdouble
-    fma::Cdouble
-    other::Cdouble
+function ==(t1::crude_time, t2::crude_time)
+    return (t1.tv_sec==t2.tv_sec) && (t1.tv_usec==t2.tv_usec)
 end
 
 #kernel/ifftw.h:429
@@ -163,6 +163,13 @@ type iodim
     n::Cptrdiff_t
     is::Cptrdiff_t
     os::Cptrdiff_t
+end
+
+function Base.show(io::IO, d::iodim)
+    print_with_color(:yellow,"iodim:\n")
+    println(" n: $(d.n)")
+    println(" is: $(d.is)")
+    println(" os: $(d.os)")
 end
 
 #kernel/ifftw.h:440
@@ -183,6 +190,116 @@ type tensor
     end=#
 end
 
+function Base.show(io::IO, t::Ptr{tensor})
+    print_with_color(:yellow,"tensor from pointer:\n")
+    r = unsafe_load(reinterpret(Ptr{Cint}, t))
+    println(" rnk: $r")
+#    d = unsafe_wrap(Array, reinterpret(Ptr{iodim}, t+sizeof(Cint)), r)
+    for i = 1:r
+        d = unsafe_load(reinterpret(Ptr{iodim}, t+2*sizeof(Cint)+(i-1)*sizeof(iodim)))
+        println(" d at $i:")
+        show(d)
+#=        n = unsafe_load(reinterpret(Ptr{Cptrdiff_t}, t+2*sizeof(Cint)+(i-1)*sizeof(iodim)))
+        is = unsafe_load(reinterpret(Ptr{Cptrdiff_t}, t+2*sizeof(Cint)+(i-1)*sizeof(iodim)+sizeof(Cptrdiff_t)))
+        os = unsafe_load(reinterpret(Ptr{Cptrdiff_t}, t+2*sizeof(Cint)+(i-1)*sizeof(iodim)+2*sizeof(Cptrdiff_t)))
+        println("d at $i: $n $is $os")=#
+    end
+end
+
+#kernel/ifftw.h:525
+immutable problem_adt
+    problem_kind::problems
+    hash::Ptr{Void}
+    zero::Ptr{Void}
+    print::Ptr{Void}
+    destroy::Ptr{Void}
+end
+
+function Base.show(io::IO, p::problem_adt)
+    print_with_color(:yellow,"problem_adt:\n")
+    println(" problem_kind: $(p.problem_kind) ($(Cint(p.problem_kind)))")
+    println(" hash: $(p.hash)")
+    println(" zero: $(p.zero)")
+    println(" print: $(p.print)")
+    println(" destroy: $(p.destroy)")
+end
+
+#kernel/ifftw.h:527
+immutable problem
+    adt::Ptr{problem_adt}
+end
+
+function Base.show(io::IO, p::problem)
+    print_with_color(:yellow,"problem:\n")
+    adt = unsafe_load(p.adt)
+    if adt.problem_kind == PROBLEM_DFT
+        print_with_color(:yellow,"problem_dft:\n")
+        
+    end
+    show(unsafe_load(p.adt))
+end
+
+type problem_dft
+    super::problem
+    sz::Ptr{tensor}
+    vecsz::Ptr{tensor}
+    ri::Ptr{Cdouble}
+    ii::Ptr{Cdouble}
+    ro::Ptr{Cdouble}
+    io::Ptr{Cdouble}
+end
+
+function Base.show(io::IO, p::problem_dft)
+    print_with_color(:yellow,"problem_dft:\n")
+    println("super:")
+    show(p.super)
+    println("sz:")
+    show(p.sz)
+    println("vecsz:")
+    show(p.vecsz)
+    println("ri: $(unsafe_wrap(Array{Cdouble}, p.ri, 5))")
+    println("ii: $(unsafe_wrap(Array{Cdouble}, p.ii, 5))")
+    println("ro: $(unsafe_wrap(Array{Cdouble}, p.ro, 5))")
+    println("io: $(unsafe_wrap(Array{Cdouble}, p.io, 5))")
+end
+
+function Base.show(io::IO, p::Ptr{problem_dft})
+    print_with_color(90,"arrays in problem:\n")
+    pri = reinterpret(Ptr{Ptr{Cdouble}}, p + 24)
+    pii = reinterpret(Ptr{Ptr{Cdouble}}, p + 32)
+    pro = reinterpret(Ptr{Ptr{Cdouble}}, p + 40)
+    pio = reinterpret(Ptr{Ptr{Cdouble}}, p + 48)
+
+    for i=1:5
+        v = unsafe_load(unsafe_load(pri), i)
+        println("element $i of ri: $v")
+        v = unsafe_load(unsafe_load(pii), i)
+        println("element $i of ii: $v")
+        v = unsafe_load(pro, i)
+        v = unsafe_load(unsafe_load(pro), i)
+        println("element $i of ro: $v")
+        v = unsafe_load(pio, i)
+        v = unsafe_load(unsafe_load(pio), i)
+        println("element $i of io: $v")
+    end
+end
+
+#kernel/ifftw.h:363
+immutable opcnt
+    add::Cdouble
+    mul::Cdouble
+    fma::Cdouble
+    other::Cdouble
+end
+
+function Base.show(io::IO, c::opcnt)
+    print_with_color(:yellow,"opcnt:\n")
+    println(" adds: $(c.add)")
+    println(" muls: $(c.mul)")
+    println(" fmas: $(c.fma)")
+    println(" other: $(c.other)")
+end
+
 #kernel/ifftw.h:400
 typealias md5sig NTuple{4,Cuint}
 
@@ -193,6 +310,7 @@ type md5
     l::Cuint
 end
     
+#kernel/ifftw.h:578
 immutable plan_adt
     solve::Ptr{Void}
     awake::Ptr{Void}
@@ -200,12 +318,96 @@ immutable plan_adt
     destroy::Ptr{Void}
 end
 
-type plan_s
-    adt::plan_adt
+#kernel/ifftw.h:580
+immutable plan
+    adt::Ptr{plan_adt}
     ops::opcnt
     pcost::Cdouble
     wakefulness::Cint
     could_prune_now_p::Cint
+end
+
+function Base.show(io::IO, p::plan)
+    print_with_color(:yellow,"plan:\n")
+    println(" adt: $(p.adt)")
+    println(" ops:")
+    show(p.ops)
+    println(" pcost: $(p.pcost)")
+    println(" wakefulness: $(p.wakefulness)")
+    println(" could_prune_now_p: $(p.could_prune_now_p)")
+end
+
+immutable planpad
+    padding::NTuple{72,UInt8}
+end
+
+#kernel/ifftw.h:55
+type plan_dft
+    super::plan
+    apply::Ptr{Void}
+    pd::planpad
+end
+
+function Base.show(io::IO, p::plan_dft)
+    print_with_color(:yellow,"plan_dft:\n")
+    show(p.super)
+    println(" apply: $(p.apply)")
+end
+
+typealias probs Union{problem, problem_dft}
+typealias plans Union{plan, plan_dft}
+
+#api/api.h:62
+type apiplan
+    pln::Ptr{plan_dft}
+    prb::Ptr{problem_dft}
+    sign::Cint
+end
+
+function mkpapiplan(pln::Ptr{plan_dft}, prb::Ptr{problem_dft}, sign::Cint)::Ptr{apiplan}
+    p = Base.Libc.malloc(sizeof(apiplan))
+    kind = unsafe_load(unsafe_load(prb).super.adt).problem_kind
+    if kind == PROBLEM_DFT
+        pt = reinterpret(Ptr{Ptr{plan_dft}}, p)
+        unsafe_store!(pt, pln)
+        pt = reinterpret(Ptr{Ptr{problem_dft}}, p + 8)
+        unsafe_store!(pt, prb)
+        pt = reinterpret(Ptr{Cint}, p + 16)
+        unsafe_store!(pt, sign)
+    else
+        error("problem $kind not implemented yet")
+    end
+    return p
+end
+
+function Base.show(io::IO, ap::Ptr{apiplan})
+    print_with_color(:yellow,"apiplan:\n")
+#    ppln = unsafe_load(ap).pln
+#    pprb = unsafe_load(ap).prb
+    pln_dft = unsafe_load(ap).pln
+    prb_dft = unsafe_load(ap).prb
+    prb     = unsafe_load(prb_dft).super
+    adt     = unsafe_load(prb.adt)
+    kind    = adt.problem_kind
+    kind == PROBLEM_DFT || error("show Ptr{apiplan}: kind $kind not implemented yet")
+    show(pln_dft)
+    show(prb_dft)
+#=    kind = unsafe_load(unsafe_load(unsafe_load(ap).prb).adt).problem_kind
+    if kind == PROBLEM_DFT
+        print_with_color(:yellow," kind = PROBLEM_DFT\n")
+        ppln = reinterpret(Ptr{Ptr{plan_dft}}, ap)
+        pln  = unsafe_load(unsafe_load(ppln))
+        pprb = reinterpret(Ptr{Ptr{problem_dft}}, ap + 8)
+        prb  = unsafe_load(unsafe_load(pprb))
+        show(pln)
+        show(prb)=#
+#=        println("sign: $(unsafe_load(ap).sign)")
+        solve = unsafe_load(pln.super.adt).solve
+        print_with_color(:cyan,"solve: $solve\n")
+        ccall(solve, Void, (Ptr{plan_dft}, Ptr{problem_dft}), ppln, pprb)
+        print_with_color(:cyan,"after solving:\n")
+        show(unsafe_load(pprb))=#
+#    end      
 end
 
 #=
@@ -216,20 +418,30 @@ type myFFTWPlan
     could_prune_now_p::Int16
 end=#
 
+#kernel/ifftw.h:599
+type solver_adt
+    problem_kind::problems
+    mkplan::Ptr{Void}
+    destroy::Ptr{Void}
+end
+
 #kernel/ifftw.h:601
 type solver
-    problem_kind::problems
+    adt::Ptr{solver_adt}
     refcnt::Cint
 end
 
 function Base.show(io::IO, s::solver)
-    println("solver of problem kind $(s.problem_kind) with $(s.refcnt) refs")
+    adt = unsafe_load(s.adt)
+    pk = Int(adt.problem_kind)
+    println("solver of problem kind $pk with $(s.refcnt) ref", pk != 1 ? "s" : "")
 end
 
 #kernel/ifftw.h:623
 type slvdesc
     slv::solver
-    reg_nam::AbstractString
+#    reg_nam::AbstractString
+    reg_nam::Ptr{Cchar}
     nam_hash::Cuint
     reg_id::Cint
     next_for_same_problem_kind::Cint
@@ -342,7 +554,8 @@ type solution
 end
 
 #kernel/ifftw.h:746
-type hashtab
+#type hashtab
+immutable hashtab
     solutions::Ptr{solution}
     hashsiz::Cuint
     nelem::Cuint
@@ -379,38 +592,6 @@ function Base.show(io::IO, ht::hashtab)
 end
 
 
-#kernel/ifftw.h:527
-#Julia cannot yet handle abstract types with fields so each
-#concrete problem type must have problem_kind::Cint first
-#abstract problem
-
-#kernel/ifftw.h:525
-immutable problem_adt
-    problem_kind::problems
-    hash::Ptr{Void}
-    zero::Ptr{Void}
-    print::Ptr{Void}
-    destroy::Ptr{Void}
-end
-
-function Base.show(io::IO, p::problem_adt)
-    println("problem_adt:")
-    println(" problem_kind: $(p.problem_kind) ($(Cint(p.problem_kind)))")
-    println(" hash: $(p.hash)")
-    println(" zero: $(p.zero)")
-    println(" print: $(p.print)")
-    println(" destroy: $(p.destroy)")
-end
-
-#kernel/ifftw.h:527
-immutable problem
-    adt::Ptr{problem_adt}
-end
-
-function Base.show(io::IO, p::problem)
-    println("problem:")
-    show(unsafe_load(p.adt))
-end
     
 #kernel/ifftw.h:735
 immutable planner_adt
@@ -422,6 +603,7 @@ immutable planner_adt
 end
 
 function Base.show(io::IO, adt::planner_adt)
+    print_with_color(:yellow,"planner_adt:\n")
     println("  adt.register_solver: $(adt.register_solver)")
     println("  adt.mkplan: $(adt.mkplan)")
     println("  adt.forget: $(adt.forget)")
@@ -466,11 +648,14 @@ type planner
     function planner(p::Ptr{planner})
         local ar = fieldnames(planner)
         local at = [fieldtype(planner, name) for name in ar]
+#        local of = [fieldoffset(planner, i) for i in 1:size(ar)[1]]
         local of = [0,8,8,8,8,8,8,8,4,4,8,4,32,4,48,48,8,8,16,8,4,4,8,8,8]
 #        rv = Array{Any}(25)
+#        add = [p+of[i] for i in 1:size(of)[1]]
         pt = p
         jp = new()
-        for i in 1:25 #size(ar)[1]
+        for i in 1:size(ar)[1]
+#            pt = add[i]  
             pt += of[i]  
             println("at offset $(pt-p):")
             println(" field: $(ar[i])")
@@ -498,7 +683,7 @@ end
 
 function Base.show(io::IO, p::planner)
     local adt::planner_adt = unsafe_load(p.adt)
-    println("Planner:")
+    print_with_color(:yellow,"Planner:\n")
     println(" adt: $(p.adt)")
     println("  adt.register_solver: $(adt.register_solver)")
     println("  adt.mkplan: $(adt.mkplan)")
@@ -542,12 +727,13 @@ function Base.show(io::IO, p::planner)
     println(" nprob: $(p.nprob)")
 end
 
-type problem_dft
-    super::problem
-    sz::Ptr{tensor}
-    vecsz::Ptr{tensor}
-    ri::Ptr{Cdouble}
-    ii::Ptr{Cdouble}
-    ro::Ptr{Cdouble}
-    io::Ptr{Cdouble}
+const planneroffs = [0,8,8,8,8,8,8,8,4,4,8,4,32,4,48,48,8,8,16,8,4,4,8,8,8]
+const poffs = cumsum(planneroffs)
+const dpoffs = Dict((fieldname(planner, i), poffs[i]) for i in 1:nfields(planner))
+
+function changeplanner(plnr::Ptr{planner}, elem::Symbol, x)
+    off = dpoffs[elem]
+    pt = reinterpret(Ptr{typeof(x)}, plnr + off)
+    unsafe_store!(pt, x)
 end
+
