@@ -1,4 +1,5 @@
 export mkplan0, mkplan, mkapiplan
+using Base.Libc
 #=type problem_dft <: problem
     problem_kind::problems
     sz::tensor
@@ -81,10 +82,204 @@ function GURU_KOSHERP(rank::Cint, dims::Array{Cint,2}, howmany_rank::Cint, howma
     return iodims_kosherp(rank, dims, Cint(0)) && iodims_kosherp(howmany_rank, howmany_dims, Cint(1))
 end
 
+#macros in kernel/planner.c:33
+VALIDP(sol::Ptr{solution})::Cuint = flag(unsafe_load(sol).flags, :h) & H_VALID
+LIVEP(sol::Ptr{solution})::Cuint  = flag(unsafe_load(sol).flags, :h) & H_LIVE
+SLVNDX(sol::Ptr{solution})::Cuint = flag(unsafe_load(sol).flags, :s)
+BLISS(f::flags_t)::Cuint = flag(f, :h) & BLESSING
+
+#macro LEQ in kernel/planner.c:50
+LEQ{T<:Unsigned}(x::T, y::T)::Bool = (x & y) == x
+
+#macros in kernel/ifftw.h:669
+PLNR_L(p::Ptr{planner})::Cuint = flag(unsafe_load(p).flags, :l)
+PLNR_U(p::Ptr{planner})::Cuint = flag(unsafe_load(p).flags, :u)
+PLNR_TIMELIMIT_IMPATIENCE(p::Ptr{planner})::Cuint = flag(unsafe_load(p).flags, :t)
+
+#macros in kernel/ifftw.h:673
+ESTIMATEP(p::Ptr{planner})::Cuint = PLNR_U(p) & ESTIMATE
+BELIEVE_PCOSTP(p::Ptr{planner})::Cuint = PLNR_U(p) & BELIEVE_PCOST
+ALLOW_PRUNING(p::Ptr{planner})::Cuint = PLNR_U(p) & ALLOW_PRUNING
+
+#macros in kernel/ifftw.h:677
+NO_INDIRECT_OP_P(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_INDIRECT_OP
+NO_LARGE_GENERICP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_LARGE_GENERIC
+NO_RANK_SPLITSP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_RANK_SPLITS
+NO_VRANK_SPLITSP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_VRANK_SPLITS
+NO_VRECURSEP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_VRECURSE
+NO_DFT_R2HCP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_DFT_R2HC
+NO_SLOWP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_SLOW
+NO_UGLYP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_UGLY
+NO_FIXED_RADIX_LARGE_NP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_FIXED_RADIX_LARGE_N
+NO_NONTHREADEDP(p::Ptr{planner})::Cuint = (PLNR_L(p) & NO_NONTHREADED) &&
+                                          unsafe_load(p).nthr > 1
+
+#macros in kernel/ifftw.h:690
+NO_DESTROYINPUTP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_DESTROY_INPUT
+NO_SIMDP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_SIMD
+NO_CONSERVE_MEMORYP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_CONSERVE_MEMORY
+NO_DHT_R2HCP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_DHT_R2HC
+NO_BUFFERINGP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_BUFFERING
+
+#macro CHECK_FOR_BOGOSITY in kernel/planner.c:617
+macro CHECK_FOR_BOGOSITY()
+    mpl = unsafe_load(ego)
+    if (mpl.bogosity_hook != C_NULL ?
+        (mpl.wisdom_state = mpl.bogosity_hook(mpl.wisdom_state, p))
+        : mpl.wisdom_state) == WISDOM_IS_BOGUS
+        return :(@goto wisdom_is_bogus)
+    end
+end
+
+#X(solver_use) in kernel/solver.c:33
+function solver_use(ego::Ptr{solver})::Void
+    #ego.refcnt += 1
+    rc = unsafe_load(ego).refcnt + 1
+    #refcnt offset by 8 bytes from beginning of solver
+    pt = ego + 8 
+    reinterpret(Ptr{Cint}, pt)
+    unsafe_store!(pt, rc)
+    return nothing
+end
+
+#static void sgrow in kernel/planner.c:80
+function sgrow(ego::Ptr{planner})::Void
+    plnr = unsafe_load(ego)
+    osiz = plnr.slvdescsiz
+    nsiz = 1 + osiz + div(osiz, 4)
+#    ntab = 
+
+end
+
+#static void register_solver in kernel/planner.c:94
 function register_solver(ego::Ptr{planner}, s::Ptr{solver})
     if s != C_NULL
-        
+        plnr = unsafe_load(ego)
+        solver_use(s)
+        @assert plnr.nslvdesc < INFEASIBLE_SLVNDX
+        if plnr.nslvdesc >= plnr.slvdescsiz
+            sgrow(ego)
+
+        end
     end
+end
+
+#static plan* mkplan in kernel/planner.c:623
+function mkplan(ego::Ptr{planner}, p::Ptr{problem})::Ptr{plan}
+    local m = md5()
+    local sol::Ptr{solution}
+
+    @assert LEQ(PLNR_L(ego), PLNR_U(ego))
+    
+    if ESTIMATEP(ego)
+        #flags at 216 bytes in planner
+        pt = reinterpret(Ptr{flags_t}, ego + 216)
+        unsafe_store!(pt, setflag(unsafe_load(pt), :t, 0))
+    end
+
+    #timed_out at 248 bytes in planner
+    pt = reinterpret(Ptr{Cint}, ego + 248)
+    unsafe_store!(pt, 0)
+
+    #nprob at 280 bytes in planner
+    pt = reinterpret(Ptr{Cint}, ego + 280)
+    unsafe_store!(pt, unsafe_load(pt) + 1)
+    md5hash(Ref(m), p, ego)
+
+    plnr = unsafe_load(ego)
+
+    flags_of_solution = plnr.flags
+
+    if plnr.wisdom_state != WISDOM_IGNORE_ALL
+        if sol == hlookup(ego, m.s, Ref(flags_of_solution))
+            #wisdom is acceptable
+            owisdom_state = plnr.wisdom_state
+
+            if plnr.wisdom_ok_hook != C_NULL && plnr.wisdom_ok_hook(p, 
+                                                       unsafe_load(sol).flags) == 0
+                @goto do_search
+            end
+
+            slvndx = SLVNDX(sol)
+            if slvndx == INFEASIBLE_SLVNDX
+                if plnr.wisdom_state == WISDOM_IGNORE_INFEASIBLE
+                    @goto do_search
+                else
+                    return C_NULL
+                end
+            end
+
+            flags_of_solution = unsafe_load(sol).flags
+            setflag(flags_of_solution, :h, flag(flags_of_solution, :h) | BLISS(ego))
+
+            #wisdom_state at 108 bytes in planner
+            pt = reinterpret(Ptr{wisdom_state_t}, ego + 108)
+            unsafe_store!(pt, WISDOM_ONLY)
+
+            s = unsafe_load(unsafe_load(ego).slvdescs, slvndx+1).slv
+            if unsafe_load(unsafe_load(p).adt).problem_kind != 
+                             unsafe_load(unsafe_load(s).adt).problem_kind
+                @goto wisdom_is_bogus
+            end
+
+            pln = invoke_solver(ego, p, s, Ref(flags_of_solution))
+
+            @CHECK_FOR_BOGOSITY
+
+            sol = C_NULL
+
+            if pln == C_NULL
+                @goto wisdom_is_bogus
+            end
+
+            #wisdom_state at 108 bytes in planner
+            pt = reinterpret(Ptr{wisdom_state_t}, ego + 108)
+            unsafe_store!(pt, owisdom_state)
+
+            @goto skip_search
+        elseif unsafe_load(ego).nowisdom_hook != C_NULL
+            unsafe_load(ego).nowisdom_hook(p)
+        end
+    end
+
+  @label do_search
+    if unsafe_load(ego).wisdom_state == WISDOM_ONLY
+        @goto wisdom_is_bogus
+    end
+
+    flags_of_solution = unsafe_load(ego).flags
+    pln = search(ego, p, Ref(slvndx), Ref(flags_of_solution))
+    @CHECK_FOR_BOGOSITY
+
+    if unsafe_load(ego).timed_out != 0
+        @assert pln == C_NULL
+        if PLNR_TIMELIMIT_IMPATIENCE(ego) != 0
+            setflag(flags_of_solution, :h, flag(flags_of_solution, :h) | BLESSING)
+        else
+            return C_NULL
+        end
+    else
+        setflag(flags_of_solution, :t, 0)
+    end
+
+  @label skip_search
+    if unsafe_load(ego).wisdom_state == WISDOM_NORMAL || 
+              unsafe_load(ego).wisdom_state == WISDOM_ONLY
+        if pln != C_NULL
+            hinsert(ego, m.s, Ref(flags_of_solution), slvndx)
+            invoke_hook(ego, pln, p, 1)
+        else
+            hinsert(ego, m.s, Ref(flags_of_solution), INFEASIBLE_SLVNDX)
+        end
+    end
+    return pln
+
+  @label wisdom_is_bogus
+    plan_destroy_internal(pln)
+    #wisdom_state at 108 bytes in planner
+    pt = reinterpret(Ptr{wisdom_state_t}, ego + 108)
+    unsafe_store!(pt, WISDOM_IS_BOGUS)
+    return C_NULL
 end
 
 function testplan(ap::Ptr{apiplan})
@@ -157,11 +352,12 @@ lib  = FFTWchanges.libfftw
     l = flag(tflags, :l)
     t = flag(tflags, :t)
     u = flag(tflags, :u)
+    s = flag(tflags, :s)
 #    plnr.flags.hash_info = hash_info
 #    plnr.flags = flags_t(l, hash_info, t, u)
 #    plnr.wisdom_state = wisdom_state
     pt = reinterpret(Ptr{flags_t}, plnr + 216)
-    unsafe_store!(pt, flags_t(l, hash_info, t, u))
+    unsafe_store!(pt, flags_t(l, hash_info, t, u, s))
     pt = reinterpret(Ptr{Cint}, plnr + 108)
     unsafe_store!(pt, Cint(wisdom_state))
 #TMP    

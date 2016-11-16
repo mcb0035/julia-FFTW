@@ -7,6 +7,7 @@ export opcnt, iodim, tensor, solver, slvdesc, flags_t, solution, hashtab
 
 import Base: show, size, copy, isless, ==, convert
 
+include("md5.jl")
 include("types.jl")
 include("tensors.jl")
 
@@ -97,7 +98,7 @@ end
         return p
     end
 end=#
-
+#=
 #VALIDP in kernel/planner.c:33
 function VALIDP(sol::solution)
     return sol.flags.hash_info & H_VALID != 0
@@ -118,7 +119,7 @@ function BLISS(f::flags_t)
 #    return f.hash_info & BLESSING
     return flag(f, :h) & BLESSING
 end
-
+=#
 #INFEASIBLE_SLVNDX in kernel/planner.c:37
 #function INFEASIBLE_SLVNDX
 #    return (1 << BITS_FOR_SLVNDX) - 1

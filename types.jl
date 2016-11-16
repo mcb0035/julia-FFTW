@@ -2,7 +2,9 @@
 import Base.show
 import Base.==
 
-export problems, Wakefulness, Hashtable_info, amnesia, wisdom_state_t, cost_kind, inplace_kind, printer, crude_time, iodim, tensor, problem_adt, problem, problem_dft, opcnt, md5, plan_adt, plan, plan_dft, probs, plans, apiplan, solver_adt, solver, slvdesc, flags_t, flag, solution, hashtab, planner_adt, planner 
+export problems, Wakefulness, Hashtable_info, amnesia, wisdom_state_t, cost_kind, inplace_kind, printer, crude_time, iodim, tensor, problem_adt, problem, problem_dft, opcnt, plan_adt, plan, plan_dft, probs, plans, apiplan, solver_adt, solver, slvdesc, flags_t, flag, solution, hashtab, planner_adt, planner 
+
+#include("md5.jl")
 
 const FFTW_MEASURE         = UInt32(0)
 const FFTW_DESTROY_INPUT   = UInt32(1 << 0)
@@ -300,16 +302,6 @@ function Base.show(io::IO, c::opcnt)
     println(" other: $(c.other)")
 end
 
-#kernel/ifftw.h:400
-typealias md5sig NTuple{4,Cuint}
-
-#kernel/ifftw.h:409
-type md5
-    s::md5sig
-    c::NTuple{64,Cuchar}
-    l::Cuint
-end
-    
 #kernel/ifftw.h:578
 immutable plan_adt
     solve::Ptr{Void}
@@ -468,6 +460,7 @@ end
 #multiple of 8 bits so cannot pack into 64 bits
 const BITS_FOR_TIMELIMIT = Cuint(9)
 const BITS_FOR_SLVNDX = Cuint(12)
+const INFEASIBLE_SLVNDX = 1 << BITS_FOR_SLVNDX - 1
 #=-
 bitstype 20 f_l <: Unsigned
 bitstype 3 f_hash_info <: Unsigned
@@ -486,12 +479,39 @@ end
 
 #kernel/ifftw.h:651
 bitstype 64 flags_t
-function flags_t(l::Cuint, h::Cuint, t::Cuint, u::Cuint)::flags_t
+function flags_t(l::Cuint, h::Cuint, t::Cuint, u::Cuint, s::Cuint)::flags_t
     ll = l & (1<<20-1)
     hh = h & (1<<3-1)
     tt = t & (1<<9-1)
     uu = u & (1<<20-1)
-    return reinterpret(flags_t, (ll<<44)|(hh<<41)|(tt<<32)|(uu<<12))
+    ss = s & (1<<12-1)
+    return reinterpret(flags_t, (ll<<44)|(hh<<41)|(tt<<32)|(uu<<12)|ss)
+end
+
+function setflag(f::flags_t, s::Symbol, x::Cuint)::flags_t
+    ff = reinterpret(UInt64, f)
+    if s == :l
+        v = x & (1<<20-1)
+        ff = (ff << 20 >>> 20) | v << 44
+    elseif s == :h
+        v = x & (1<<3-1)
+        b = ff << 20 >>> 61 << 41
+        ff = (ff & ~b) | v << 41
+    elseif s == :t
+        v = x & (1<<9-1)
+        b = ff << 23 >>> 55 << 32
+        ff = (ff & ~b) | v << 32
+    elseif s == :u
+        v = x & (1<<20-1)
+        b = ff << 32 >>> 44 << 12
+        ff = (ff & ~b) | v << 12
+    elseif s == :s
+        v = x & (1<<12-1)
+        ff = (ff >>> 12 << 12) | v
+    else
+        error("setflag: invalid symbol $s")
+    end
+    return ff
 end
 
 function flag(f::flags_t, s::Symbol)::Cuint
@@ -504,8 +524,10 @@ function flag(f::flags_t, s::Symbol)::Cuint
         v = (ff>>>32)&(1<<9-1)
     elseif s == :u
         v = (ff>>>12)&(1<<20-1)
+    elseif s == :s
+        v = ff&(1<<12-1)
     else
-        error("flag: invalid symbol")
+        error("flag: invalid symbol $s")
     end
     return Cuint(v)
 end
@@ -515,6 +537,7 @@ function Base.show(io::IO, f::flags_t)
     h = flag(f, :h)
     t = flag(f, :t)
     u = flag(f, :u)
+    s = flag(f, :s)
     println("flags:")
     ff = reinterpret(Int64, f)
     println(" $(bits(ff))")
@@ -522,6 +545,7 @@ function Base.show(io::IO, f::flags_t)
     println(" h: $(bits(h)[end-2:end])")
     println(" t: $(bits(t)[end-8:end])")
     println(" u: $(bits(u)[end-19:end])")
+    println(" s: $(bits(s)[end-11:end])")
 end
 
 #kernel/ifftw.h:651
@@ -548,7 +572,7 @@ type solution
     flags::flags_t
 
     function solution()
-        sol = new([0, 0, 0, 0,], flags_t(0,0,0,0))
+        sol = new([0, 0, 0, 0,], flags_t(0,0,0,0,0))
         return sol
     end
 end
