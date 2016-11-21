@@ -8,7 +8,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <fftw3.h>
-#include <api.h>
+//#include <api.h>
 
 const int N = 10;
 
@@ -322,7 +322,7 @@ void rA(A* x) {
     printf("address of x->a: %p\n", &(x->a));
     printf("address of x->b: %p\n", &(x->b));
 }
-
+/*
 void fftwsizes() {
     printf("size of apiplan:     %u\n", sizeof(fftw_plan_s));
 //    printf("size of plan:        %u\n", sizeof(plan));
@@ -330,14 +330,43 @@ void fftwsizes() {
 //    printf("size of problem:     %u\n", sizeof(problem));
 //    printf("size of problem_dft: %u\n", sizeof(problem_dft));
 }
+*/
+typedef struct {
+    unsigned l:20;
+    unsigned h:3;
+    unsigned t:9;
+    unsigned u:20;
+    unsigned s:12;
+} flags_t;
 
+flags_t* pmkflags_t() {
+    flags_t* v = (flags_t*)malloc(sizeof(flags_t));
+    v->l = 1;
+    v->u = 3;
+    v->t = 7;
+    v->h = 0;
+    return v;
+}
 
+flags_t* cflags_t(flags_t* f) {
+    f->u = 63;
+    return f;
+}
 
+typedef struct {
+    int x;
+    flags_t f;
+} fstruct;
 
-
-
-
-
+fstruct* mkfstruct() {
+    fstruct* ff = (fstruct*)malloc(sizeof(fstruct));
+    ff->x = 31;
+    ff->f.l = 0;
+    ff->f.h = 3;
+    ff->f.t = 7;
+    ff->f.u = 15;
+    return ff;
+}
 
 
 

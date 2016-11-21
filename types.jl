@@ -1,21 +1,36 @@
 ## FFTW Flags from fftw3.h
-import Base.show
-import Base.==
+import Base: show, ==, Libc.malloc
 
-export problems, Wakefulness, Hashtable_info, amnesia, wisdom_state_t, cost_kind, inplace_kind, printer, crude_time, iodim, tensor, problem_adt, problem, problem_dft, opcnt, plan_adt, plan, plan_dft, probs, plans, apiplan, solver_adt, solver, slvdesc, flags_t, flag, solution, hashtab, planner_adt, planner 
+export problems, Wakefulness, Hashtable_info, amnesia, wisdom_state_t, cost_kind, inplace_kind, printer, crude_time, iodim, tensor, problem_adt, problem, problem_dft, opcnt, plan_adt, plan, plan_dft, probs, plans, apiplan, solver_adt, solver, slvdesc, flags_t, flag, setflag, solution, hashtab, planner_adt, planner 
+
+export FFTW_MEASURE, FFTW_DESTROY_INPUT, FFTW_UNALIGNED, FFTW_CONSERVE_MEMORY, FFTW_EXHAUSTIVE, FFTW_PRESERVE_INPUT, FFTW_PATIENT, FFTW_ESTIMATE, FFTW_WISDOM_ONLY, FFTW_ESTIMATE_PATIENT, FFTW_BELIEVE_PCOST, FFTW_NO_DFT_R2HC, FFTW_NO_NONTHREADED, FFTW_NO_BUFFERING, FFTW_NO_INDIRECT_OP, FFTW_ALLOW_LARGE_GENERIC, FFTW_NO_RANK_SPLITS, FFTW_NO_VRANK_SPLITS, FFTW_NO_VRECURSE, FFTW_NO_SIMD, FFTW_NO_SLOW, FFTW_NO_FIXED_RADIX_LARGE_N, FFTW_ALLOW_PRUNING
 
 #include("md5.jl")
 
-const FFTW_MEASURE         = UInt32(0)
-const FFTW_DESTROY_INPUT   = UInt32(1 << 0)
-const FFTW_UNALIGNED       = UInt32(1 << 1)
-const FFTW_CONSERVE_MEMORY = UInt32(1 << 2)
-const FFTW_EXHAUSTIVE      = UInt32(1 << 3)   # NO_EXHAUSTIVE is default
-const FFTW_PRESERVE_INPUT  = UInt32(1 << 4)   # cancels DESTROY_INPUT
-const FFTW_PATIENT         = UInt32(1 << 5)   # IMPATIENT is default
-const FFTW_ESTIMATE        = UInt32(1 << 6)
-const FFTW_WISDOM_ONLY     = UInt32(1 << 21)
-const FFTW_NO_SIMD = UInt32(1 << 17) # disable SIMD, useful for benchmarking
+const FFTW_MEASURE                = UInt32(0)
+const FFTW_DESTROY_INPUT          = UInt32(1 << 0)
+const FFTW_UNALIGNED              = UInt32(1 << 1)
+const FFTW_CONSERVE_MEMORY        = UInt32(1 << 2)
+const FFTW_EXHAUSTIVE             = UInt32(1 << 3)   # NO_EXHAUSTIVE is default
+const FFTW_PRESERVE_INPUT         = UInt32(1 << 4)   # cancels DESTROY_INPUT
+const FFTW_PATIENT                = UInt32(1 << 5)   # IMPATIENT is default
+const FFTW_ESTIMATE               = UInt32(1 << 6)
+const FFTW_WISDOM_ONLY            = UInt32(1 << 21)
+
+const FFTW_ESTIMATE_PATIENT       = UInt32(1 << 7)
+const FFTW_BELIEVE_PCOST          = UInt32(1 << 8)
+const FFTW_NO_DFT_R2HC            = UInt32(1 << 9)
+const FFTW_NO_NONTHREADED         = UInt32(1 << 10)
+const FFTW_NO_BUFFERING           = UInt32(1 << 11)
+const FFTW_NO_INDIRECT_OP         = UInt32(1 << 12)
+const FFTW_ALLOW_LARGE_GENERIC    = UInt32(1 << 13)
+const FFTW_NO_RANK_SPLITS         = UInt32(1 << 14)
+const FFTW_NO_VRANK_SPLITS        = UInt32(1 << 15)
+const FFTW_NO_VRECURSE            = UInt32(1 << 16)
+const FFTW_NO_SIMD                = UInt32(1 << 17)
+const FFTW_NO_SLOW                = UInt32(1 << 18)
+const FFTW_NO_FIXED_RADIX_LARGE_N = UInt32(1 << 19)
+const FFTW_ALLOW_PRUNING          = UInt32(1 << 20)
 
 ## R2R transform kinds
 
@@ -50,33 +65,35 @@ const FFTW_RODFT11 = 10
       AWAKE_ZERO = 1, 
       AWAKE_SQRTN_TABLE = 2, 
       AWAKE_SINCOS = 3)
-#=
+
 #kernel/ifftw.h:654
-@enum(Patience, 
-      BELIEVE_PCOST = 0x0001, 
-      ESTIMATE = 0x0002,
-      NO_DFT_R2HC = 0x0004,
-      NO_SLOW = 0x0008,
-      NO_VRECURSE = 0x0010,
-      NO_INDIRECT_OP = 0x0020,
-      NO_LARGE_GENERIC = 0x0040,
-      NO_RANK_SPLITS = 0x0080,
-      NO_VRANK_SPLITS = 0x0100,
-      NO_NONTHREADED = 0x0200,
-      NO_BUFFERING = 0x0400,
-      NO_FIXED_RADIX_LARGE_N = 0x0800,
-      NO_DESTROY_INPUT = 0x1000,
-      NO_SIMD = 0x2000,
-      CONSERVE_MEMORY = 0x4000,
-      NO_DHT_R2HC = 0x8000,
-      NO_UGLY = 0x10000,
-      ALLOW_PRUNING = 0x20000)=#
+const BELIEVE_PCOST          = Cuint(0x0001)
+const ESTIMATE               = Cuint(0x0002)
+const NO_DFT_R2HC            = Cuint(0x0004)
+const NO_SLOW                = Cuint(0x0008)
+const NO_VRECURSE            = Cuint(0x0010)
+const NO_INDIRECT_OP         = Cuint(0x0020)
+const NO_LARGE_GENERIC       = Cuint(0x0040)
+const NO_RANK_SPLITS         = Cuint(0x0080)
+const NO_VRANK_SPLITS        = Cuint(0x0100)
+const NO_NONTHREADED         = Cuint(0x0200)
+const NO_BUFFERING           = Cuint(0x0400)
+const NO_FIXED_RADIX_LARGE_N = Cuint(0x0800)
+const NO_DESTROY_INPUT       = Cuint(0x1000)
+const NO_SIMD                = Cuint(0x2000)
+const CONSERVE_MEMORY        = Cuint(0x4000)
+const NO_DHT_R2HC            = Cuint(0x8000)
+const NO_UGLY                = Cuint(0x10000)
+const ALLOW_PRUNING          = Cuint(0x20000)
 
 #kernel/ifftw.h:676
-@enum(Hashtable_info, 
+#=enum(Hashtable_info, 
       BLESSING = 0x1,
       H_VALID = 0x2,
-      H_LIVE = 0x4)
+      H_LIVE = 0x4)=#
+    const BLESSING = 0x1 #save this entry
+    const H_VALID  = 0x2 #valid hashtab entry
+    const H_LIVE   = 0x4 #entry is nonempty, implies H_VALID
 
 #kernel/ifftw.h:709
 @enum(amnesia,
@@ -116,12 +133,12 @@ elseif is(typeof(1.0), Float32)
     typealias Float Float32
 end
 
-immutable fftw_plan_struct end
-typealias PlanPtr Ptr{fftw_plan_struct}
+#immutable fftw_plan_struct end
+#typealias PlanPtr Ptr{fftw_plan_struct}
 
 #MINE
-immutable fftw_problem_struct end
-typealias ProbPtr Ptr{fftw_problem_struct}
+#immutable fftw_problem_struct end
+#typealias ProbPtr Ptr{fftw_problem_struct}
 #immutable fftw_print_struct end
 #typealias PrintPtr Ptr{fftw_print_struct}
 #immutable fftw_tensor_struct end
@@ -479,53 +496,69 @@ end
 
 #kernel/ifftw.h:651
 bitstype 64 flags_t
-function flags_t(l::Cuint, h::Cuint, t::Cuint, u::Cuint, s::Cuint)::flags_t
+function flags_t(l::Integer, h::Integer, t::Integer, u::Integer, s::Integer)::flags_t
     ll = l & (1<<20-1)
     hh = h & (1<<3-1)
     tt = t & (1<<9-1)
     uu = u & (1<<20-1)
     ss = s & (1<<12-1)
-    return reinterpret(flags_t, (ll<<44)|(hh<<41)|(tt<<32)|(uu<<12)|ss)
+#backwards    return reinterpret(flags_t, (ll<<44)|(hh<<41)|(tt<<32)|(uu<<12)|ss)
+    return reinterpret(flags_t, ll|(hh<<20)|(tt<<23)|(uu<<32)|(ss<<52))
 end
 
-function setflag(f::flags_t, s::Symbol, x::Cuint)::flags_t
+function setflag(f::flags_t, s::Symbol, x::Integer)::flags_t
     ff = reinterpret(UInt64, f)
+    x = convert(Cuint, x)
     if s == :l
         v = x & (1<<20-1)
-        ff = (ff << 20 >>> 20) | v << 44
+#        ff = (ff << 20 >>> 20) | v << 44
+        ff = (ff >>> 20 << 20) | v
     elseif s == :h
         v = x & (1<<3-1)
-        b = ff << 20 >>> 61 << 41
-        ff = (ff & ~b) | v << 41
+#        b = ff << 20 >>> 61 << 41
+        b = ff >>> 20 << 61 >>> 41
+#        ff = (ff & ~b) | v << 41
+        ff = (ff & ~b) | v << 20
     elseif s == :t
         v = x & (1<<9-1)
-        b = ff << 23 >>> 55 << 32
-        ff = (ff & ~b) | v << 32
+#        b = ff << 23 >>> 55 << 32
+        b = ff >>> 23 << 55 >>> 32
+#        ff = (ff & ~b) | v << 32
+        ff = (ff & ~b) | v << 23
     elseif s == :u
         v = x & (1<<20-1)
-        b = ff << 32 >>> 44 << 12
-        ff = (ff & ~b) | v << 12
+#        b = ff << 32 >>> 44 << 12
+        b = ff >>> 32 << 44 >>> 12
+#        ff = (ff & ~b) | v << 12
+        ff = (ff & ~b) | v << 32
     elseif s == :s
         v = x & (1<<12-1)
-        ff = (ff >>> 12 << 12) | v
+#        ff = (ff >>> 12 << 12) | v
+        ff = (ff << 12 >>> 12) | v << 52
     else
         error("setflag: invalid symbol $s")
     end
+    ff = reinterpret(flags_t, ff)
     return ff
 end
 
 function flag(f::flags_t, s::Symbol)::Cuint
     ff = reinterpret(UInt64, f)
     if s == :l
-        v = (ff>>>44)&(1<<20-1)
+#        v = (ff>>>44)&(1<<20-1)
+        v = ff&(1<<20-1)
     elseif s == :h
-        v = (ff>>>41)&(1<<3-1)
+#        v = (ff>>>41)&(1<<3-1)
+        v = (ff>>>20)&(1<<3-1)
     elseif s == :t
-        v = (ff>>>32)&(1<<9-1)
+#        v = (ff>>>32)&(1<<9-1)
+        v = (ff>>>23)&(1<<9-1)
     elseif s == :u
-        v = (ff>>>12)&(1<<20-1)
+#        v = (ff>>>12)&(1<<20-1)
+        v = (ff>>>32)&(1<<20-1)
     elseif s == :s
-        v = ff&(1<<12-1)
+#        v = ff&(1<<12-1)
+        v = (ff>>>52)&(1<<12-1)
     else
         error("flag: invalid symbol $s")
     end
@@ -539,7 +572,7 @@ function Base.show(io::IO, f::flags_t)
     u = flag(f, :u)
     s = flag(f, :s)
     println("flags:")
-    ff = reinterpret(Int64, f)
+    ff = reinterpret(UInt64, f)
     println(" $(bits(ff))")
     println(" l: $(bits(l)[end-19:end])")
     println(" h: $(bits(h)[end-2:end])")
@@ -577,6 +610,17 @@ type solution
     end
 end
 
+function newsolution()::Ptr{solution}
+    s = Ptr{solution}(malloc(sizeof(solution)))
+    return s
+end
+
+function Base.show(io::IO, s::solution)
+    print_with_color(:yellow,"solution:\n")
+    println("s: $(s.s)")
+    println("flags: $(s.flags)")
+end
+
 #kernel/ifftw.h:746
 #type hashtab
 immutable hashtab
@@ -601,9 +645,13 @@ immutable hashtab
 end
 
 function Base.show(io::IO, ht::hashtab)
-    println("hashtab:")
+    print_with_color(:yellow,"hashtab:\n")
 #    local hs = ht.hashsiz
 #    local s::solution = unsafe_load(ht.solutions)
+    for i in 1:ht.hashsiz
+        println(" solution $i:")
+        show(unsafe_load(ht.solutions, i))
+    end
     println(" hashsiz: $(ht.hashsiz)")
     println(" nelem: $(ht.nelem)")
     println(" lookup: $(ht.lookup)")
@@ -681,9 +729,9 @@ type planner
         for i in 1:size(ar)[1]
 #            pt = add[i]  
             pt += of[i]  
-            println("at offset $(pt-p):")
-            println(" field: $(ar[i])")
-            println(" type: $(at[i])")
+#            println("at offset $(pt-p):")
+#            println(" field: $(ar[i])")
+#            println(" type: $(at[i])")
             if at[i] <: Ptr || at[i] <: Real || at[i] == hashtab
                 v = unsafe_load(reinterpret(Ptr{at[i]}, pt))
             elseif at[i] == NTuple{8,Cint}
@@ -698,7 +746,7 @@ type planner
                 error("planner: type $(at[i]) not accounted for")
             end
 #            rv[i] = v
-            println(" value: $v")
+#            println(" value: $v")
             setfield!(jp, ar[i], v)
         end
         return jp
@@ -751,6 +799,18 @@ function Base.show(io::IO, p::planner)
     println(" nprob: $(p.nprob)")
 end
 
+function ==(p::planner, q::planner)::Bool
+    v = true
+    for i in fieldnames(planner)
+        if getfield(p, i) != getfield(q, i) 
+            error("field $i different: $(getfield(p, i)) != $(getfield(q, i))")
+            v = false
+        end
+    end
+    return v
+end
+
+
 const planneroffs = [0,8,8,8,8,8,8,8,4,4,8,4,32,4,48,48,8,8,16,8,4,4,8,8,8]
 const poffs = cumsum(planneroffs)
 const dpoffs = Dict((fieldname(planner, i), poffs[i]) for i in 1:nfields(planner))
@@ -760,4 +820,75 @@ function changeplanner(plnr::Ptr{planner}, elem::Symbol, x)
     pt = reinterpret(Ptr{typeof(x)}, plnr + off)
     unsafe_store!(pt, x)
 end
+#=
+function check(plnr::Ptr{planner})::Void
+    jp = unsafe_load(plnr)
+#    jp = planner(plnr)
+    @assert jp.nplan == Cint(0)
+    @assert jp.nprob == Cint(0)
+    @assert jp.pcost == Cdouble(0)
+    @assert jp.epcost == Cdouble(0)
+    @assert jp.hook == C_NULL
+    @assert jp.cost_hook == C_NULL
+    @assert jp.wisdom_ok_hook == C_NULL
+    @assert jp.nowisdom_hook == C_NULL
+    @assert jp.bogosity_hook == C_NULL
+    @assert jp.cur_reg_nam == C_NULL
+    @assert jp.wisdom_state == WISDOM_NORMAL
+    @assert jp.slvdescs == C_NULL
+    @assert jp.nslvdesc == Cuint(0)
+    @assert jp.slvdescsiz == Cuint(0)
+    @assert flag(jp.flags, :l) == Cuint(0)
+    @assert flag(jp.flags, :u) == Cuint(0)
+    @assert flag(jp.flags, :t) == Cuint(0)
+    @assert flag(jp.flags, :h) == Cuint(0)
+    @assert jp.nthr == Cint(1)
+    @assert jp.need_timeout_check == Cint(1)
+    @assert jp.timelimit == Cdouble(-1)
+    for i=1:Int(PROBLEM_LAST)
+        @assert jp.slvdescs_for_problem_kind[i] == Cint(-1)
+    end
+end
+=#
+
+
+
+
+
+
+
+
+#macros in kernel/ifftw.h:669
+PLNR_L(p::Ptr{planner})::Cuint = flag(unsafe_load(p).flags, :l)
+PLNR_U(p::Ptr{planner})::Cuint = flag(unsafe_load(p).flags, :u)
+PLNR_TIMELIMIT_IMPATIENCE(p::Ptr{planner})::Cuint = flag(unsafe_load(p).flags, :t)
+
+#macros in kernel/ifftw.h:673
+ESTIMATEP(p::Ptr{planner})::Cuint = PLNR_U(p) & ESTIMATE
+BELIEVE_PCOSTP(p::Ptr{planner})::Cuint = PLNR_U(p) & BELIEVE_PCOST
+ALLOW_PRUNINGP(p::Ptr{planner})::Cuint = PLNR_U(p) & ALLOW_PRUNING
+
+#macros in kernel/ifftw.h:677
+NO_INDIRECT_OP_P(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_INDIRECT_OP
+NO_LARGE_GENERICP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_LARGE_GENERIC
+NO_RANK_SPLITSP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_RANK_SPLITS
+NO_VRANK_SPLITSP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_VRANK_SPLITS
+NO_VRECURSEP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_VRECURSE
+NO_DFT_R2HCP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_DFT_R2HC
+NO_SLOWP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_SLOW
+NO_UGLYP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_UGLY
+NO_FIXED_RADIX_LARGE_NP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_FIXED_RADIX_LARGE_N
+NO_NONTHREADEDP(p::Ptr{planner})::Cuint = (PLNR_L(p) & NO_NONTHREADED) &&
+                                          unsafe_load(p).nthr > 1
+
+#macros in kernel/ifftw.h:690
+NO_DESTROY_INPUTP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_DESTROY_INPUT
+NO_SIMDP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_SIMD
+NO_CONSERVE_MEMORYP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_CONSERVE_MEMORY
+NO_DHT_R2HCP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_DHT_R2HC
+NO_BUFFERINGP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_BUFFERING
+
+
+
+
 

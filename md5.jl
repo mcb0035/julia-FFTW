@@ -1,5 +1,5 @@
 #MD5 hashing stuff
-import Base.show
+import Base.show, Base.Libc.malloc
 export md5sig, md5, md5begin, md5putc, md5end
 
 #kernel/ifftw.h:381
@@ -21,6 +21,11 @@ type md5
         m = new((zeros(md5uint, 4)...), (zeros(Cuchar, 64)...), Cuint(0))
         return m
     end
+end
+
+function newmd5()::Ptr{md5}
+    m = Ptr{md5}(malloc(sizeof(md5)))
+    return m
 end
 
 function Base.show(io::IO, m::md5)
@@ -179,12 +184,24 @@ end
 
 #void X(md5puts) in md5-1.c:32
 function md5puts(p::Ptr{md5}, s::Ptr{Cchar})::Void
-    md5putc(p, unsafe_load(s))
+#=    md5putc(p, unsafe_load(s))
     while unsafe_load(s) != 0
         s += sizeof(Cchar)
         md5putc(p, unsafe_load(s))
     end
+    s += sizeof(Cchar)=#
+
+    #do {
+    #  X(md5putc)(p, *s);
+    #} while(*s++);
+
+    while true
+        md5putc(p, unsafe_load(s))
+        unsafe_load(s) == 0 && break
+        s += sizeof(Cchar)
+    end
     s += sizeof(Cchar)
+
     return nothing
 end
 

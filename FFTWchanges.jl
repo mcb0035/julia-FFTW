@@ -19,6 +19,8 @@ export export_wisdom, import_wisdom, import_system_wisdom, forget_wisdom,
 
 const libfftw = Base.libfftw_name
 const libfftwf = Base.libfftwf_name
+#TMP
+const mylibfftw = "/home/qm4/fftw3-debug/lib/libfftw3_threads.so"
 
 const version = convert(VersionNumber, split(unsafe_string(cglobal((:fftw_version,Base.DFT.FFTW.libfftw), UInt8)), ['-', ' '])[2])
 
@@ -28,7 +30,7 @@ const FORWARD = -1
 const BACKWARD = 1
 
 ## FFTW Flags from fftw3.h
-
+#=
 const MEASURE         = UInt32(0)
 const DESTROY_INPUT   = UInt32(1 << 0)
 const UNALIGNED       = UInt32(1 << 1)
@@ -39,7 +41,7 @@ const PATIENT         = UInt32(1 << 5)   # IMPATIENT is default
 const ESTIMATE        = UInt32(1 << 6)
 const WISDOM_ONLY     = UInt32(1 << 21)
 const NO_SIMD = UInt32(1 << 17) # disable SIMD, useful for benchmarking
-
+=#
 ## R2R transform kinds
 
 const R2HC    = 0
@@ -84,7 +86,7 @@ pointer{T}(a::FakeArray{T}) = convert(Ptr{T}, C_NULL)
 FakeArray{T, N}(::Type{T}, sz::NTuple{N, Int}) =
     FakeArray{T, N}(sz, colmajorstrides(sz))
 FakeArray{T}(::Type{T}, sz::Int...) = FakeArray(T, sz)
-fakesimilar(flags, X, T) = flags & ESTIMATE != 0 ? FakeArray(T, size(X)) : Array{T}(size(X))
+fakesimilar(flags, X, T) = flags & FFTW_ESTIMATE != 0 ? FakeArray(T, size(X)) : Array{T}(size(X))
 alignment_of(A::FakeArray) = Int32(0)
 
 #MINE
@@ -347,7 +349,7 @@ function assert_applicable{T}(p::FFTWPlan{T}, X::StridedArray{T})
         throw(ArgumentError("FFTW plan applied to wrong-size array"))
     elseif strides(X) != p.istride
         throw(ArgumentError("FFTW plan applied to wrong-strides array"))
-    elseif alignment_of(X) != p.ialign || p.flags & UNALIGNED != 0
+    elseif alignment_of(X) != p.ialign || p.flags & FFTW_UNALIGNED != 0
         throw(ArgumentError("FFTW plan applied to array with wrong memory alignment"))
     end
 end
@@ -358,7 +360,7 @@ function assert_applicable{T,K,inplace}(p::FFTWPlan{T,K,inplace}, X::StridedArra
         throw(ArgumentError("FFTW plan applied to wrong-size output"))
     elseif strides(Y) != p.ostride
         throw(ArgumentError("FFTW plan applied to wrong-strides output"))
-    elseif alignment_of(Y) != p.oalign || p.flags & UNALIGNED != 0
+    elseif alignment_of(Y) != p.oalign || p.flags & FFTW_UNALIGNED != 0
         throw(ArgumentError("FFTW plan applied to output with wrong memory alignment"))
     elseif inplace != (pointer(X) == pointer(Y))
         throw(ArgumentError(string("FFTW ",
@@ -572,7 +574,7 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
 #=        aplan = ccall(($(string(fftw,"_mkapiplan")),$lib),
                       Ptr{apiplan},
                       (Cint, Cuint, Ptr{problem_dft}),
-                      direction, flags | PRESERVE_INPUT, prob)=#
+                      direction, flags | FFTW_PRESERVE_INPUT, prob)=#
 #        print_with_color(:green,"apiplan from C:\n")
 #        show(aplan)
 #        testplan(aplan)
@@ -721,14 +723,14 @@ for (f,direction) in ((:fft,FORWARD), (:bfft,BACKWARD))
     idirection = -direction
     @eval begin
         function $plan_f{T<:fftwComplex,N}(X::StridedArray{T,N}, region;
-                                           flags::Integer=ESTIMATE,
+                                           flags::Integer=FFTW_ESTIMATE,
                                            timelimit::Real=NO_TIMELIMIT)
             cFFTWPlan{T,$direction,false,N}(X, fakesimilar(flags, X, T),
                                             region, flags, timelimit)
         end
 
         function $plan_f!{T<:fftwComplex,N}(X::StridedArray{T,N}, region;
-                                            flags::Integer=ESTIMATE,
+                                            flags::Integer=FFTW_ESTIMATE,
                                             timelimit::Real=NO_TIMELIMIT)
             cFFTWPlan{T,$direction,true,N}(X, X, region, flags, timelimit)
         end
@@ -772,25 +774,25 @@ for (Tr,Tc) in ((:Float32,:Complex64),(:Float64,:Complex128))
     # Note: use $FORWARD and $BACKWARD below because of issue #9775
     @eval begin
         function plan_rfft{N}(X::StridedArray{$Tr,N}, region;
-                              flags::Integer=ESTIMATE,
+                              flags::Integer=FFTW_ESTIMATE,
                               timelimit::Real=NO_TIMELIMIT)
             osize = rfft_output_size(X, region)
-            Y = flags&ESTIMATE != 0 ? FakeArray($Tc,osize...) : Array{$Tc}(osize...)
+            Y = flags&FFTW_ESTIMATE != 0 ? FakeArray($Tc,osize...) : Array{$Tc}(osize...)
             rFFTWPlan{$Tr,$FORWARD,false,N}(X, Y, region, flags, timelimit)
         end
 
         function plan_brfft{N}(X::StridedArray{$Tc,N}, d::Integer, region;
-                               flags::Integer=ESTIMATE,
+                               flags::Integer=FFTW_ESTIMATE,
                                timelimit::Real=NO_TIMELIMIT)
             osize = brfft_output_size(X, d, region)
-            Y = flags&ESTIMATE != 0 ? FakeArray($Tr,osize...) : Array{$Tr}(osize...)
+            Y = flags&FFTW_ESTIMATE != 0 ? FakeArray($Tr,osize...) : Array{$Tr}(osize...)
 
             # FFTW currently doesn't support PRESERVE_INPUT for
             # multidimensional out-of-place c2r transforms, so
             # we have to handle 1d and >1d cases separately with a copy.  Ugh.
             if length(region) <= 1
                 rFFTWPlan{$Tc,$BACKWARD,false,N}(X, Y, region,
-                                                 flags | PRESERVE_INPUT,
+                                                 flags | FFTW_PRESERVE_INPUT,
                                                  timelimit)
             else
                 rFFTWPlan{$Tc,$BACKWARD,false,N}(copy(X), Y, region, flags,
@@ -803,17 +805,17 @@ for (Tr,Tc) in ((:Float32,:Complex64),(:Float64,:Complex128))
 
         function plan_inv{N}(p::rFFTWPlan{$Tr,$FORWARD,false,N})
             X = Array{$Tr}(p.sz)
-            Y = p.flags&ESTIMATE != 0 ? FakeArray($Tc,p.osz) : Array{$Tc}(p.osz)
+            Y = p.flags&FFTW_ESTIMATE != 0 ? FakeArray($Tc,p.osz) : Array{$Tc}(p.osz)
             ScaledPlan(rFFTWPlan{$Tc,$BACKWARD,false,N}(Y, X, p.region,
                                                         length(p.region) <= 1 ?
-                                                        p.flags | PRESERVE_INPUT :
+                                                        p.flags | FFTW_PRESERVE_INPUT :
                                                         p.flags, NO_TIMELIMIT),
                        normalization(X, p.region))
         end
 
         function plan_inv{N}(p::rFFTWPlan{$Tc,$BACKWARD,false,N})
             X = Arra{$Tc}(p.sz)
-            Y = p.flags&ESTIMATE != 0 ? FakeArray($Tr,p.osz) : Array{$Tr}(p.osz)
+            Y = p.flags&FFTW_ESTIMATE != 0 ? FakeArray($Tr,p.osz) : Array{$Tr}(p.osz)
             ScaledPlan(rFFTWPlan{$Tr,$FORWARD,false,N}(Y, X, p.region,
                                                        p.flags, NO_TIMELIMIT),
                        normalization(Y, p.region))
@@ -838,7 +840,7 @@ for (Tr,Tc) in ((:Float32,:Complex64),(:Float64,:Complex128))
         end
 
         function *{N}(p::rFFTWPlan{$Tc,$BACKWARD,false}, x::StridedArray{$Tc,N})
-            if p.flags & PRESERVE_INPUT != 0
+            if p.flags & FFTW_PRESERVE_INPUT != 0
                 assert_applicable(p, x)
                 y = Array{$Tr}(p.osz)::Array{$Tr,N}
                 unsafe_execute!(p, x, y)
@@ -888,14 +890,14 @@ for f in (:r2r, :r2r!)
 end
 
 function plan_r2r{T<:fftwNumber,N}(X::StridedArray{T,N}, kinds, region;
-                                   flags::Integer=ESTIMATE,
+                                   flags::Integer=FFTW_ESTIMATE,
                                    timelimit::Real=NO_TIMELIMIT)
     r2rFFTWPlan{T,ANY,false,N}(X, fakesimilar(flags, X, T), region, kinds,
                                flags, timelimit)
 end
 
 function plan_r2r!{T<:fftwNumber,N}(X::StridedArray{T,N}, kinds, region;
-                                    flags::Integer=ESTIMATE,
+                                    flags::Integer=FFTW_ESTIMATE,
                                     timelimit::Real=NO_TIMELIMIT)
     r2rFFTWPlan{T,ANY,true,N}(X, X, region, kinds, flags, timelimit)
 end

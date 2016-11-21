@@ -9,6 +9,7 @@ import Base: show, size, copy, isless, ==, convert
 
 include("md5.jl")
 include("types.jl")
+include("mapflags.jl")
 include("tensors.jl")
 
 const MAXNAM = 64
@@ -181,7 +182,7 @@ function nextsz(nelem::Cuint)
 end
 
 #addmod in kernel/planner.c:64
-function addmod(a::Cuint, b::Cuint, c::Cuint)
+function addmod(a::Cuint, b::Cuint, p::Cuint)
     c = a + b
     return c >= p ? c - p : c
 end
