@@ -5,19 +5,29 @@ immutable flagmask
     xm::Cuint
 end
 
+function Base.show(io::IO, f::flagmask)
+    print(io, "($(bits(f.x)[end-length(digits(f.x,2))+1:end]), $(bits(f.xm)[end-length(digits(f.xm,2))+1:end]))")
+end
+
 #flagop in api/mapflags.c:34
 immutable flagop
     flag::flagmask
     op::flagmask
 end
 
+function Base.show(io::IO, f::flagop)
+    print_with_color(:yellow," flagop:\n")
+#    println(" flag: { {$(bits(f.flag.x)[end-count_ones(f.flag.x)-1:end]), $(bits(f.flag.xm)[end-count_ones(f.flag.xm)-1:end])}, {$(bits(f.op.x)[end-count_ones(f.op.x)-1:end]), $(bits(f.op.xm)[end-count_ones(f.op.xm)-1:end])} }")
+    println("{$(f.flag), $(f.op)}")
+end
+
 #macros in api/mapflags.c:36
-FLAGP(f, msk::flagmask)::Cuint = xor((f & msk.x), msk.xm)
-OP(f, msk::flagmask)::Cuint = xor((f | msk.x), msk.xm)
-YES(x)::flagmask = flagmask(Cuint(x), Cuint(0))
-NO(x)::flagmask = flagmask(Cuint(x), Cuint(x))
+FLAGP(f, msk::flagmask)::Cuint            = (f & msk.x) ⊻ msk.xm
+OP(f, msk::flagmask)::Cuint               = (f | msk.x) ⊻ msk.xm
+YES(x)::flagmask                          = flagmask(Cuint(x), Cuint(0))
+NO(x)::flagmask                           = flagmask(Cuint(x), Cuint(x))
 IMPLIES(x::flagmask, y::flagmask)::flagop = flagop(x, y)
-EQV(a::Cuint, b::Cuint) = IMPLIES(YES(a), YES(b)), IMPLIES(NO(a), NO(b))
+EQV(a::Cuint, b::Cuint)  = IMPLIES(YES(a), YES(b)), IMPLIES(NO(a), NO(b))
 NEQV(a::Cuint, b::Cuint) = IMPLIES(YES(a), NO(b)), IMPLIES(NO(a), YES(b))
 
 #static void map_flags in api/mapflags.c:45
@@ -26,7 +36,10 @@ function map_flags(iflags::Cuint, oflags::Cuint, flagmap::Array{flagop}, nmap::I
     of = oflags
     for i=1:nmap
         if FLAGP(iflags, flagmap[i].flag) != 0
-            of = OP(oflags, flagmap[i].op)
+#            print_with_color(219,"map_flags: mapping flag $i:\n")
+#            show(flagmap[i])
+#            print_with_color(219,"new flags: $(bits(OP(of, flagmap[i].op))[end-19:end])\n")
+            of = OP(of, flagmap[i].op)
         end
     end
     return of
@@ -34,8 +47,8 @@ end
 
 #static unsigned timelimit_to_flags in api/mapflags.c:58
 function timelimit_to_flags(timelimit::Cdouble)::Cuint
-    tmax = 365*24*3600
-    tstep = 1.05
+    tmax   = 365*24*3600
+    tstep  = 1.05
     nsteps = 1 << 9 #BITS_FOR_TIMELIMIT = 9
     
     if timelimit < 0 || timelimit >= tmax
@@ -57,7 +70,11 @@ function timelimit_to_flags(timelimit::Cdouble)::Cuint
 end
 
 #void X(mapflags) in api/mapflags.c:77
-function mapflags(plnr::Ptr{planner}, flags::Cuint)::Void
+function mapflags(plnr::Ptr{planner}, flags::Cuint)::flags_t
+#    print_with_color(74,"mapflags: API flags:\n")
+#    println(bits(flags)[end-19:end])
+#    print_with_color(74,"mapflags: planner flags\n")
+#    show(unsafe_load(plnr).flags)
     self_flagmap = [
 	  #= in some cases (notably for halfcomplex->real transforms),
 	     DESTROY_INPUT is the default, so we need to support
@@ -118,12 +135,20 @@ function mapflags(plnr::Ptr{planner}, flags::Cuint)::Void
 	  EQV(FFTW_NO_SLOW, NO_SLOW)...,
       EQV(FFTW_NO_FIXED_RADIX_LARGE_N, NO_FIXED_RADIX_LARGE_N)...])
 
+#    print_with_color(74,"mapflags: self_flagmap\n")
     flags = map_flags(flags, flags, self_flagmap, length(self_flagmap))
 
     l = Cuint(0)
     u = Cuint(0)
+#    print_with_color(74,"mapflags: l_flagmap\n")
     l = map_flags(flags, l, l_flagmap, length(l_flagmap))
+#    print_with_color(74,"mapflags: u_flagmap\n")
     u = map_flags(flags, u, u_flagmap, length(u_flagmap))
+    
+#    print_with_color(103,"mapflags: new l:\n")
+#    println(bits(l)[end-19:end])
+#    print_with_color(103,"mapflags: new u:\n")
+#    println(bits(u)[end-19:end])
 
     ff = unsafe_load(plnr).flags
     ff = setflag(ff, :l, l)
@@ -143,6 +168,7 @@ function mapflags(plnr::Ptr{planner}, flags::Cuint)::Void
     unsafe_store!(pt, ff)
 
     @assert PLNR_TIMELIMIT_IMPATIENCE(plnr) == t
+    return ff
 end
 
 

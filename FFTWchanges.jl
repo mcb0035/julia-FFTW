@@ -569,7 +569,7 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
 #        dftprob = unsafe_load(convert(Ptr{problem_dft}, prob))
 #        print_with_color(:green,"problem_dft:\n")
 #        show(dftprob)
-        print_with_color(:green,$(string("library: ",fftw," ",lib,"\n")))
+        print_with_color(:green,"cFFTWPlan constructor: ",$(string("library: ",fftw," ",lib,"\n")))
 
 #=        aplan = ccall(($(string(fftw,"_mkapiplan")),$lib),
                       Ptr{apiplan},
@@ -579,7 +579,8 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
 #        show(aplan)
 #        testplan(aplan)
 
-        aplan = mkapiplan(Cint(direction), flags, prob)
+#        aplan = mkapiplan(Cint(direction), flags, prob)
+        aplan = mkapiplan(Cint(direction), flags, reinterpret(Ptr{problem}, prob))
 
 #        if (aplan.pln == C_NULL) || (aplan == nothing)
         if  (aplan == C_NULL) || (unsafe_load(aplan).pln == C_NULL )
@@ -590,7 +591,7 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
             error("FFTW could not create plan") # shouldn't normally happen
         end
 #TMP
-        print_with_color(:green,"made apiplan\n")
+        print_with_color(:green,"cFFTWPlan constructor: made apiplan\n")
 #        ccall((:fftw_execute_dft,libfftw), Void,
 #              (Ptr{apiplan},Ptr{$Tc},Ptr{$Tc}), Ref(aplan), X, Y)
 #        ccall((:fftw_execute,libfftw), Void,

@@ -368,9 +368,17 @@ fstruct* mkfstruct() {
     return ff;
 }
 
+void inctest() {
+    A a = {1, 69.0};
+    A b = {10, 666.0};
+    printf("a: %d %lf\n", a.a, a.b);
+    printf("b: %d %lf\n", b.a, b.b);
+    a.a = b.a++;
+    printf("a: %d %lf\n", a.a, a.b);
+    printf("b: %d %lf\n", b.a, b.b);
+}
 
-
-
+char* derp() { return "derp"; } 
 
 
 

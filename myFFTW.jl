@@ -170,17 +170,18 @@ function subsumes(a::flags_t, slvndx_a::Cuint, b::flags_t)
         return flag(a,:l) <= flag(b,:l) && flag(a,:t) <= flag(b,:t)
     end
 end
-
-#minsz in kernel/planner.c:320
-function minsz(nelem::Cuint)
-    return Cuint(div(1 + nelem + nelem, 8))
+#=
+#static unsigned minsz in kernel/planner.c:320
+function minsz(nelem::Cuint)::Cuint
+#    return Cuint(div(1 + nelem + nelem, 8))
+    return Cuint(1 + nelem + div(nelem, 8))
 end
 
-#nextsz in kernel/planner.c:325
-function nextsz(nelem::Cuint)
+#static unsigned nextsz in kernel/planner.c:325
+function nextsz(nelem::Cuint)::Cuint
     return minsz(minsz(nelem))
 end
-
+=#
 #addmod in kernel/planner.c:64
 function addmod(a::Cuint, b::Cuint, p::Cuint)
     c = a + b

@@ -1,6 +1,13 @@
 #Constructors using C memory allocation
 #this is scaffolding that should be removed at some point
 
+#void* X(malloc_plain) in kernel/alloc.c:263
+function malloc_plain(n::Csize_t)::Ptr{Void}
+    n != 0 || n = 1
+    p = Libc.malloc(n)
+    return p
+end
+
 #problem* X(mkproblem) in kernel/problem.c:25
 function mkproblem(sz::Csize_t, adt::Ptr{problem_adt})::Ptr{problem}
     p = Ptr{problem}(malloc(sz))
@@ -42,14 +49,11 @@ end
 #=
 #static const padt in kernel/problem.c:63
 const padt = problem_adt(PROBLEM_UNSOLVABLE,
-                         unsolvable_hash,
-                         unsolvable_zero,
-                         unsolvable_print,
-                         unsolvable_destroy)
+                         unsolvable_hash, unsolvable_zero, unsolvable_print, unsolvable_destroy)
 
 the_unsolvable_problem = problem(=#
 
-const padt = problem_adt(PROBLEM_UNSOLVABLE,
+const prob_adt = problem_adt(PROBLEM_UNSOLVABLE,
                          cfunction(unsolvable_hash, Void, (Ptr{problem}, Ptr{md5})),
                          cfunction(unsolvable_zero, Void, (Ptr{problem})),
                          cfunction(unsolvable_print, Void, (Ptr{problem}, 
@@ -63,8 +67,114 @@ function mkproblem_unsolvable() = Ref(the_unsolvable_problem)
 
 #planner* X(mkplanner) in kernel/planner.c:911
 function mkplanner()::Ptr{planner}
-    
+    #fill planner_adt
+    padt = Ptr{planner_adt}(malloc(sizeof(planner_adt)))
+    pt = reinterpret(Ptr{Void}, padt)
+    unsafe_store!(pt, cfunction(register_solver, Void, (Ptr{planner}, Ptr{solver})))
+    unsafe_store!(pt + 8, cfunction(mkplan, Ptr{plan}, (Ptr{planner}, Ptr{problem})))
+    unsafe_store!(pt + 16, cfunction(forget, Void, (Ptr{planner}, amnesia)))
+    unsafe_store!(pt + 24, C_NULL)
+    unsafe_store!(pt + 32, C_NULL)
 
+#=    padt = planner_adt(cfunction(register_solver, Void, (Ptr{planner}, Ptr{solver})),
+                       cfunction(mkplan, Ptr{plan}, (Ptr{planner}, Ptr{problem})),
+                       cfunction(forget, Void, (Ptr{planner}, amnesia)),
+                       C_NULL,
+                       C_NULL)=#
+
+    p = Ptr{planner}(malloc(sizeof(planner))) 
+    
+    #planner_adt* adt at 0 bytes in planner
+    pt = reinterpret(Ptr{Ptr{planner_adt}}, p)
+    unsafe_store!(pt, padt)
+
+    #func* hook at 8 bytes in planner
+    pt = reinterpret(Ptr{Void}, p + 8)
+    unsafe_store!(pt, C_NULL)
+    #func* cost_hook at 16 bytes in planner
+    pt = reinterpret(Ptr{Void}, p + 16)
+    unsafe_store!(pt, C_NULL)
+    #func* wisdom_ok_hook at 24 bytes in planner
+    pt = reinterpret(Ptr{Void}, p + 24)
+    unsafe_store!(pt, C_NULL)
+    #func* nowisdom_hook at 32 bytes in planner
+    pt = reinterpret(Ptr{Void}, p + 32)
+    unsafe_store!(pt, C_NULL)
+    #func* bogosity_hook at 40 bytes in planner
+    pt = reinterpret(Ptr{Void}, p + 40)
+    unsafe_store!(pt, C_NULL)
+
+    #slvdesc* slvdescs at 48 bytes in planner
+    pt = reinterpret(Ptr{Ptr{slvdesc}}, p + 48)
+    unsafe_store!(pt, reinterpret(Ptr{slvdesc}, C_NULL))
+    #unsigned nslvdesc at 56 bytes in planner
+    pt = reinterpret(Ptr{Cuint}, p + 56)
+    unsafe_store!(pt, Cuint(0))
+    #unsigned slvdescsiz at 60 bytes in planner
+    pt = reinterpret(Ptr{Cuint}, p + 60)
+    unsafe_store!(pt, Cuint(0))
+
+    #char* cur_reg_nam at 64 bytes in planner
+    pt = reinterpret(Ptr{Ptr{Cchar}}, p + 64)
+    unsafe_store!(pt, C_NULL)
+    #int cur_reg_id at 72 bytes in planner
+    pt = reinterpret(Ptr{Cint}, p + 72)
+    unsafe_store!(pt, Cint(0))
+
+    #int[PROBLEM_LAST] slvdescs_for_problem_kind at 76 bytes in planner
+    for i in 1:Cint(PROBLEM_LAST) #should be 8
+        pt = reinterpret(Ptr{Cint}, p + 76 + (i-1)*sizeof(Cint))
+        unsafe_store!(pt, Cint(-1))
+    end
+
+    #wisdom_state_t (int) wisdom_state at 108 bytes in planner
+    pt = reinterpret(Ptr{Cint}, p + 108)
+    unsafe_store!(pt, Cint(WISDOM_NORMAL))
+
+    #hashtab htab_blessed at 112 bytes in planner
+    pt = reinterpret(Ptr{hashtab}, p + 112)
+    mkhashtab(pt)
+    #hashtab htab_unblessed at 160 bytes in planner
+    pt = reinterpret(Ptr{hashtab}, p + 160)
+    mkhashtab(pt)
+
+    #int nthr at 208 bytes in planner
+    pt = reinterpret(Ptr{Cint}, p + 208)
+    unsafe_store!(pt, Cint(1))
+
+    #flags_t flags at 216 bytes in planner
+    pt = reinterpret(Ptr{flags_t}, p + 216)
+    unsafe_store!(pt, flags_t(0,0,0,0,0))
+
+    #crude_time start_time at 224 bytes in planner
+    pt = reinterpret(Ptr{crude_time}, p + 224)
+    unsafe_store!(pt, crude_time(0,0))
+    #double timelimit at 240 bytes in planner
+    pt = reinterpret(Ptr{Cdouble}, p + 240)
+    unsafe_store!(pt, Cdouble(-1.0))
+    #int timed_out at 248 bytes in planner
+    pt = reinterpret(Ptr{Cint}, p + 248)
+    unsafe_store!(pt, Cint(0))
+    #int need_timeout_check at 252 bytes in planner
+    pt = reinterpret(Ptr{Cint}, p + 252)
+    unsafe_store!(pt, Cint(1))
+
+    #int nplan at 256 bytes in planner
+    pt = reinterpret(Ptr{Cint}, p + 256)
+    unsafe_store!(pt, Cint(0))
+
+    #double pcost at 264 bytes in planner
+    pt = reinterpret(Ptr{Cdouble}, p + 264)
+    unsafe_store!(pt, Cdouble(0.0))
+    #double epcost at 272 bytes in planner
+    pt = reinterpret(Ptr{Cdouble}, p + 272)
+    unsafe_store!(pt, Cdouble(0.0))
+
+    #int nprob at 280 bytes in planner
+    pt = reinterpret(Ptr{Cint}, p + 280)
+    unsafe_store!(pt, Cint(0.0))
+
+    return p
 end
 
 

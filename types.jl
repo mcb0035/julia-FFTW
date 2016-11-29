@@ -49,22 +49,30 @@ const FFTW_RODFT11 = 10
 #enums
 #kernel/ifftw.h:502
 @enum(problems, 
-      PROBLEM_UNSOLVABLE = 0, 
-      PROBLEM_DFT = 1, 
-      PROBLEM_RDFT = 2,
-      PROBLEM_RDFT2 = 3, 
-      PROBLEM_MPI_DFT = 4, 
-      PROBLEM_MPI_RDFT = 5,
-      PROBLEM_MPI_RDFT2 = 6, 
+      PROBLEM_UNSOLVABLE    = 0, 
+      PROBLEM_DFT           = 1, 
+      PROBLEM_RDFT          = 2,
+      PROBLEM_RDFT2         = 3, 
+      PROBLEM_MPI_DFT       = 4, 
+      PROBLEM_MPI_RDFT      = 5,
+      PROBLEM_MPI_RDFT2     = 6, 
       PROBLEM_MPI_TRANSPOSE = 7, 
-      PROBLEM_LAST = 8)
+      PROBLEM_LAST          = 8)
 
 #kernel/ifftw.h:566
 @enum(Wakefulness, 
-      SLEEPY = 0, 
-      AWAKE_ZERO = 1, 
+      SLEEPY            = 0, 
+      AWAKE_ZERO        = 1, 
       AWAKE_SQRTN_TABLE = 2, 
-      AWAKE_SINCOS = 3)
+      AWAKE_SINCOS      = 3)
+
+#kernel/ifftw.h:896
+const TW_COS  = Cint(0)
+const TW_SIN  = Cint(1)
+const TW_CEXP = Cint(2)
+const TW_NEXT = Cint(3)
+const TW_FULL = Cint(4)
+const TW_HALF = Cint(5)
 
 #kernel/ifftw.h:654
 const BELIEVE_PCOST          = Cuint(0x0001)
@@ -91,9 +99,9 @@ const ALLOW_PRUNING          = Cuint(0x20000)
       BLESSING = 0x1,
       H_VALID = 0x2,
       H_LIVE = 0x4)=#
-    const BLESSING = 0x1 #save this entry
-    const H_VALID  = 0x2 #valid hashtab entry
-    const H_LIVE   = 0x4 #entry is nonempty, implies H_VALID
+const BLESSING = 0x1 #save this entry
+const H_VALID  = 0x2 #valid hashtab entry
+const H_LIVE   = 0x4 #entry is nonempty, implies H_VALID
 
 #kernel/ifftw.h:709
 @enum(amnesia,
@@ -104,7 +112,7 @@ const ALLOW_PRUNING          = Cuint(0x20000)
 #kernel/ifftw.h:726
 @enum(wisdom_state_t,
       WISDOM_NORMAL = 0,
-#      WISDOM_ONLY = 1,
+      WISDOM_ONLY = 1,
       WISDOM_IS_BOGUS = 2,
       WISDOM_IGNORE_INFEASIBLE = 3,
       WISDOM_IGNORE_ALL = 4)
@@ -133,6 +141,11 @@ elseif is(typeof(1.0), Float32)
     typealias Float Float32
 end
 
+#macro X in ifftw.h:66
+#function X(name)::String
+#    return string(fftw,name)
+#end
+
 #immutable fftw_plan_struct end
 #typealias PlanPtr Ptr{fftw_plan_struct}
 
@@ -150,6 +163,26 @@ end
 
 #types
 
+#tw_instr in kernel/ifftw.h:903
+type tw_instr
+    op::Cuchar
+    v::Cchar
+    i::Cshort
+end
+
+#twid in kernel/ifftw.h:912
+type twid
+    W::Ptr{Cdouble}
+    n::INT
+    r::INT
+    m::INT
+    refcnt::Cint
+    instr::Ptr{tw_instr}
+    cdr::Ptr{twid}
+    wakefulness::Cint
+end
+
+#printer_s in kernel/ifftw.h:537
 type printer
     print::Ptr{Void}
     vprint::Ptr{Void}
@@ -159,9 +192,17 @@ type printer
     indent_incr::Cint
 end
 
+#scanner_s in kernel/ifftw.h:553
+type scanner
+    scan::Ptr{Void}
+    vscan::Ptr{Void}
+    getchr::Ptr{Void}
+    ungotc::Cint
+end
+
 #timeval struct contains two longs
 #TODO: generalize to any machine
-#kernel/ifftw.h:341
+#crude_time in kernel/ifftw.h:341
 immutable crude_time
     tv_sec::Clong
     tv_usec::Clong
@@ -225,6 +266,9 @@ function Base.show(io::IO, t::Ptr{tensor})
     end
 end
 
+#need abstract type for subtyping
+abstract problem_a
+
 #kernel/ifftw.h:525
 immutable problem_adt
     problem_kind::problems
@@ -244,7 +288,7 @@ function Base.show(io::IO, p::problem_adt)
 end
 
 #kernel/ifftw.h:527
-immutable problem
+immutable problem <: problem_a
     adt::Ptr{problem_adt}
 end
 
@@ -258,7 +302,7 @@ function Base.show(io::IO, p::problem)
     show(unsafe_load(p.adt))
 end
 
-type problem_dft
+type problem_dft <: problem_a
     super::problem
     sz::Ptr{tensor}
     vecsz::Ptr{tensor}
@@ -303,6 +347,14 @@ function Base.show(io::IO, p::Ptr{problem_dft})
     end
 end
 
+function Base.show(io::IO, p::Ptr{problem})
+    if unsafe_load(unsafe_load(p).adt).problem_kind == PROBLEM_DFT
+        show(unsafe_load(reinterpret(Ptr{problem_dft}, p)))
+    else
+        error("problem unsupported")
+    end
+end
+
 #kernel/ifftw.h:363
 immutable opcnt
     add::Cdouble
@@ -319,6 +371,8 @@ function Base.show(io::IO, c::opcnt)
     println(" other: $(c.other)")
 end
 
+abstract plan_a
+
 #kernel/ifftw.h:578
 immutable plan_adt
     solve::Ptr{Void}
@@ -328,12 +382,30 @@ immutable plan_adt
 end
 
 #kernel/ifftw.h:580
-immutable plan
+immutable plan <: plan_a
     adt::Ptr{plan_adt}
     ops::opcnt
     pcost::Cdouble
     wakefulness::Cint
     could_prune_now_p::Cint
+end
+
+#void X(plan_destroy_internal) in kernel/plan.c:45
+function plan_destroy_internal(ego::Ptr{plan})::Void
+    if ego != C_NULL
+        @assert unsafe_load(ego).wakefulness == Cint(SLEEPY)
+        dest = unsafe_load(unsafe_load(ego).adt).destroy
+        ccall(dest,
+              Void,
+              (Ptr{plan},),
+              ego)
+        free(ego)
+    end
+#=    ccall(("fftw_plan_destroy_internal",FFTWchanges.libfftw),
+          Void
+          (Ptr{plan},)
+          ego)=#
+    return nothing
 end
 
 function Base.show(io::IO, p::plan)
@@ -351,7 +423,7 @@ immutable planpad
 end
 
 #kernel/ifftw.h:55
-type plan_dft
+type plan_dft <: plan_a
     super::plan
     apply::Ptr{Void}
     pd::planpad
@@ -373,7 +445,7 @@ type apiplan
     sign::Cint
 end
 
-function mkpapiplan(pln::Ptr{plan_dft}, prb::Ptr{problem_dft}, sign::Cint)::Ptr{apiplan}
+function mkpapiplan(pln::Ptr{plan_dft}, prb::Ptr{problem}, sign::Cint)::Ptr{apiplan}
     p = Base.Libc.malloc(sizeof(apiplan))
     kind = unsafe_load(unsafe_load(prb).super.adt).problem_kind
     if kind == PROBLEM_DFT
@@ -427,6 +499,8 @@ type myFFTWPlan
     could_prune_now_p::Int16
 end=#
 
+abstract solver_s
+
 #kernel/ifftw.h:599
 type solver_adt
     problem_kind::problems
@@ -435,9 +509,10 @@ type solver_adt
 end
 
 #kernel/ifftw.h:601
-type solver
+type solver <: solver_s
     adt::Ptr{solver_adt}
     refcnt::Cint
+    padding::planpad
 end
 
 function Base.show(io::IO, s::solver)
@@ -448,7 +523,7 @@ end
 
 #kernel/ifftw.h:623
 type slvdesc
-    slv::solver
+    slv::Ptr{solver}
 #    reg_nam::AbstractString
     reg_nam::Ptr{Cchar}
     nam_hash::Cuint
@@ -496,7 +571,7 @@ end
 
 #kernel/ifftw.h:651
 bitstype 64 flags_t
-function flags_t(l::Integer, h::Integer, t::Integer, u::Integer, s::Integer)::flags_t
+function flags_t(l::Cuint, h::Cuint, t::Cuint, u::Cuint, s::Cuint)::flags_t
     ll = l & (1<<20-1)
     hh = h & (1<<3-1)
     tt = t & (1<<9-1)
@@ -505,6 +580,9 @@ function flags_t(l::Integer, h::Integer, t::Integer, u::Integer, s::Integer)::fl
 #backwards    return reinterpret(flags_t, (ll<<44)|(hh<<41)|(tt<<32)|(uu<<12)|ss)
     return reinterpret(flags_t, ll|(hh<<20)|(tt<<23)|(uu<<32)|(ss<<52))
 end
+
+flags_t(l::Integer, h::Integer, t::Integer, u::Integer, s::Integer) = 
+    flags_t(convert(NTuple{5, Cuint}, (l, h, t, u, s))...)
 
 function setflag(f::flags_t, s::Symbol, x::Integer)::flags_t
     ff = reinterpret(UInt64, f)
@@ -618,7 +696,8 @@ end
 function Base.show(io::IO, s::solution)
     print_with_color(:yellow,"solution:\n")
     println("s: $(s.s)")
-    println("flags: $(s.flags)")
+    show(s.flags)
+#    println("flags: $(s.flags)")
 end
 
 #kernel/ifftw.h:746
@@ -649,8 +728,12 @@ function Base.show(io::IO, ht::hashtab)
 #    local hs = ht.hashsiz
 #    local s::solution = unsafe_load(ht.solutions)
     for i in 1:ht.hashsiz
-        println(" solution $i:")
-        show(unsafe_load(ht.solutions, i))
+        println(" solution $i of $(ht.hashsiz):")
+        if ht.solutions + (i-1)*sizeof(solution) != C_NULL
+            show(unsafe_load(ht.solutions, i))
+        else
+            println(" null solution")
+        end
     end
     println(" hashsiz: $(ht.hashsiz)")
     println(" nelem: $(ht.nelem)")
@@ -810,6 +893,7 @@ function ==(p::planner, q::planner)::Bool
     return v
 end
 
+plnr_p = C_NULL
 
 const planneroffs = [0,8,8,8,8,8,8,8,4,4,8,4,32,4,48,48,8,8,16,8,4,4,8,8,8]
 const poffs = cumsum(planneroffs)
@@ -888,7 +972,7 @@ NO_CONSERVE_MEMORYP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_CONSERVE_MEMORY
 NO_DHT_R2HCP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_DHT_R2HC
 NO_BUFFERINGP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_BUFFERING
 
-
+include("dftconf.jl")
 
 
 
