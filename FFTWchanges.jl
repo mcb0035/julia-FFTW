@@ -522,8 +522,8 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
                      (Cint, Ptr{Cint}, Cint, Cint),
                      size(dims,2), convert(Array{Cint},vec(dims)), 2, 2)
 
-#        print_with_color(:green,"sz:\n") 
-#        show(sz)
+        print_with_color(:green,"sz:\n") 
+        show(sz)
 #        println("$(size(dims,2)) $dims 2 2")
 #        println("sz: $(typeof(sz))\n$sz")
 #        println("show tensor:")
@@ -544,8 +544,8 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
                      (Cint, Ptr{Cint}, Cint, Cint),
                      size(howmany,2), convert(Array{Cint},vec(howmany)), 2, 2)
 
-#        print_with_color(:green,"vecsz:\n")
-#        show(vecsz)
+        print_with_color(:green,"vecsz:\n")
+        show(vecsz)
 #        println("vecsz: $(typeof(vecsz))\n$vecsz")
 #        ccall(("showtensorc99", "/home/qm4/tests/libccall.so"), Void, (Ptr{tensor},), vecsz)
 

@@ -49,15 +49,15 @@ const FFTW_RODFT11 = 10
 #enums
 #kernel/ifftw.h:502
 @enum(problems, 
-      PROBLEM_UNSOLVABLE    = 0, 
-      PROBLEM_DFT           = 1, 
-      PROBLEM_RDFT          = 2,
-      PROBLEM_RDFT2         = 3, 
-      PROBLEM_MPI_DFT       = 4, 
-      PROBLEM_MPI_RDFT      = 5,
-      PROBLEM_MPI_RDFT2     = 6, 
-      PROBLEM_MPI_TRANSPOSE = 7, 
-      PROBLEM_LAST          = 8)
+      PROBLEM_UNSOLVABLE    = Cint(0), 
+      PROBLEM_DFT           = Cint(1), 
+      PROBLEM_RDFT          = Cint(2),
+      PROBLEM_RDFT2         = Cint(3), 
+      PROBLEM_MPI_DFT       = Cint(4), 
+      PROBLEM_MPI_RDFT      = Cint(5),
+      PROBLEM_MPI_RDFT2     = Cint(6), 
+      PROBLEM_MPI_TRANSPOSE = Cint(7), 
+      PROBLEM_LAST          = Cint(8))
 
 #kernel/ifftw.h:566
 @enum(Wakefulness, 
@@ -327,13 +327,20 @@ function Base.show(io::IO, p::problem_dft)
 end
 
 function Base.show(io::IO, p::Ptr{problem_dft})
-    print_with_color(90,"arrays in problem:\n")
+    print_with_color(:yellow,"problem_dft from pointer:\n")
+#    print_with_color(:yellow,"arrays in problem:\n")
     pri = reinterpret(Ptr{Ptr{Cdouble}}, p + 24)
     pii = reinterpret(Ptr{Ptr{Cdouble}}, p + 32)
     pro = reinterpret(Ptr{Ptr{Cdouble}}, p + 40)
     pio = reinterpret(Ptr{Ptr{Cdouble}}, p + 48)
 
-    for i=1:5
+    sz = unsafe_load(p).sz
+    print_with_color(:yellow,"tensor sz:\n")
+    show(sz)
+    dim = unsafe_load(reinterpret(Ptr{iodim}, sz + 8))
+    n = dim.n
+
+    for i=1:n
         v = unsafe_load(unsafe_load(pri), i)
         println("element $i of ri: $v")
         v = unsafe_load(unsafe_load(pii), i)
@@ -445,9 +452,11 @@ type apiplan
     sign::Cint
 end
 
-function mkpapiplan(pln::Ptr{plan_dft}, prb::Ptr{problem}, sign::Cint)::Ptr{apiplan}
-    p = Base.Libc.malloc(sizeof(apiplan))
-    kind = unsafe_load(unsafe_load(prb).super.adt).problem_kind
+function mkpapiplan(pln::Ptr{plan}, prb::Ptr{problem}, sign::Cint)::Ptr{apiplan}
+    p    = Base.Libc.malloc(sizeof(apiplan))
+    adt  = unsafe_load(unsafe_load(reinterpret(Ptr{Ptr{problem_adt}}, prb)))
+    kind = adt.problem_kind
+#    kind = unsafe_load(unsafe_load(prb).super.adt).problem_kind
     if kind == PROBLEM_DFT
         pt = reinterpret(Ptr{Ptr{plan_dft}}, p)
         unsafe_store!(pt, pln)
@@ -471,7 +480,9 @@ function Base.show(io::IO, ap::Ptr{apiplan})
     adt     = unsafe_load(prb.adt)
     kind    = adt.problem_kind
     kind == PROBLEM_DFT || error("show Ptr{apiplan}: kind $kind not implemented yet")
-    show(pln_dft)
+    print_with_color(:yellow,"apiplan.pln:\n")
+    show(unsafe_load(pln_dft))
+    print_with_color(:yellow,"apiplan.prb:\n")
     show(prb_dft)
 #=    kind = unsafe_load(unsafe_load(unsafe_load(ap).prb).adt).problem_kind
     if kind == PROBLEM_DFT
@@ -745,8 +756,50 @@ function Base.show(io::IO, ht::hashtab)
     println(" insert_unknown: $(ht.insert_unknown)")
     println(" nrehash: $(ht.nrehash)")
 end
-
-
+#=
+function Base.show(io::IO, ht::Ptr{hashtab})
+    print_with_color(:yellow,"hashtab:\n")
+    #solution* solutions at 0 bytes in hashtab
+    pt = reinterpret(Ptr{Ptr{solution}}, ht)
+    sol = unsafe_load(pt)
+    #unsigned hashsiz at 8 bytes in hashtab
+    pt = reinterpret(Ptr{Cuint}, ht + 8)
+    hashsiz = unsafe_load(pt)
+    for i in 1:hashsiz
+        println(" solution $i of $hashsiz:")
+        if sol + (i-1)*sizeof(solution) != C_NULL
+            show(unsafe_load(sol, i))
+        else
+            println(" null solution")
+        end
+    end
+    println(" hashsiz: $hashsiz")
+    #unsigned nelem at 12 bytes in hashtab
+    pt = reinterpret(Ptr{Cuint}, ht + 12)
+    println(" nelem: $(unsafe_load(pt))")
+    #int lookup at 16 bytes in hashtab
+    pt = reinterpret(Ptr{Cint}, ht + 16)
+    println(" lookup: $(unsafe_load(pt))")
+    #int succ_lookup at 20 bytes in hashtab
+    pt = reinterpret(Ptr{Cint}, ht + 20)
+    println(" succ_lookup: $(unsafe_load(pt))")
+    #int lookup_iter at 24 bytes in hashtab
+    pt = reinterpret(Ptr{Cint}, ht + 24)
+    println(" lookup_iter: $(unsafe_load(pt))")
+    #int insert at 28 bytes in hashtab
+    pt = reinterpret(Ptr{Cint}, ht + 28)
+    println(" insert: $(unsafe_load(pt))")
+    #int insert_iter at 32 bytes in hashtab
+    pt = reinterpret(Ptr{Cint}, ht + 32)
+    println(" insert_iter: $(unsafe_load(pt))")
+    #int insert_unknown at 36 bytes in hashtab
+    pt = reinterpret(Ptr{Cint}, ht + 36)
+    println(" insert_unknown: $(unsafe_load(pt))")
+    #int nrehash at 40 bytes in hashtab
+    pt = reinterpret(Ptr{Cint}, ht + 40)
+    println(" nrehash: $(unsafe_load(pt))")
+end
+=#
     
 #kernel/ifftw.h:735
 immutable planner_adt
@@ -764,6 +817,27 @@ function Base.show(io::IO, adt::planner_adt)
     println("  adt.forget: $(adt.forget)")
     println("  adt.exprt: $(adt.exprt)")
     println("  adt.imprt: $(adt.imprt)")
+end
+
+function mkplanner_adt(register_solver::Function, mkplan::Function, forget::Function, exprt::Function = x->x, imprt::Function = x->x)::Ptr{planner_adt}
+    padt = Ptr{planner_adt}(malloc(sizeof(planner_adt)))
+    #func* register_solver at 0 bytes in planner_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt)
+    unsafe_store!(pt, cfunction(register_solver, Void, (Ptr{planner}, Ptr{solver})))
+    #func* mkplan at 8 bytes in planner_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 8)
+    unsafe_store!(pt, cfunction(mkplan, Ptr{plan}, (Ptr{planner}, Ptr{problem})))
+    #func* forget at 16 bytes in planner_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 16)
+    unsafe_store!(pt, cfunction(forget, Void, (Ptr{planner}, amnesia)))
+    #func* exprt at 24 bytes in planner_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 24)
+    unsafe_store!(pt, C_NULL)
+    #func* imprt at 32 bytes in planner_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 32)
+    unsafe_store!(pt, C_NULL)
+
+    return padt
 end
 
 type planner

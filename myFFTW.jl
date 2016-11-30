@@ -13,7 +13,7 @@ include("mapflags.jl")
 include("tensors.jl")
 
 const MAXNAM = 64
-
+#=
 #rehash in kernel/planner.c:292
 function rehash(ht::hashtab, nsiz::Cuint)
     osiz = ht.hashsiz
@@ -50,7 +50,7 @@ function hgrow(ht::hashtab)
     nelem = ht.nelem
     minsz(nelem) >= ht.hashsiz ? rehash(ht, nextsz(nelem)) : nothing
 end
-
+=#
 #=constructor makes this useless
 function mkhashtab(ht::hashtab)
     ht.nrehash = 0
@@ -157,7 +157,7 @@ function next_prime(n::Cint)
     end
     return n
 end
-
+#=
 #A subsumes B
 #subsumes in kernel/planner.c:53
 function subsumes(a::flags_t, slvndx_a::Cuint, b::flags_t)
@@ -169,7 +169,7 @@ function subsumes(a::flags_t, slvndx_a::Cuint, b::flags_t)
 #        return a.l <= b.l && a.timelimit_impatience <= b.timelimit_impatience
         return flag(a,:l) <= flag(b,:l) && flag(a,:t) <= flag(b,:t)
     end
-end
+end=#
 #=
 #static unsigned minsz in kernel/planner.c:320
 function minsz(nelem::Cuint)::Cuint
@@ -182,18 +182,6 @@ function nextsz(nelem::Cuint)::Cuint
     return minsz(minsz(nelem))
 end
 =#
-#addmod in kernel/planner.c:64
-function addmod(a::Cuint, b::Cuint, p::Cuint)
-    c = a + b
-    return c >= p ? c - p : c
-end
-
-#X(solver_use) in kernel/solver.c:33
-function solver_use(ego::solver)
-    ego.refcnt += 1
-    return nothing
-end
-
 #=
 #sgrow in kernel/planner.c:80
 function sgrow(ego::planner)
@@ -270,7 +258,7 @@ function solver_register(plnr::planner, s::solver)
     register_solver(plnr, s)
     return nothing
 end=#
-
+#=
 #h1 in kernel/planner.c:155
 function h1(ht::hashtab, s::md5sig)
     return Cuint(s[1] % ht.hashsz)
@@ -489,7 +477,7 @@ function forget(ego::planner, a::amnesia)
     end
     return nothing
 end=#
-
+=#
 include("planner.jl")
 
 #end #module myFFTW
