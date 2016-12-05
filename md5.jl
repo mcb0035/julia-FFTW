@@ -1,7 +1,8 @@
 #MD5 hashing stuff
 import Base.show, Base.Libc.malloc
-export md5sig, md5, md5begin, md5putc, md5end
-
+#export md5sig, md5, md5begin, md5putc, md5end, md5putb, md5puts, md5int, md5INT, md5unsigned
+export md5begin, md5putc, md5end, md5putb, md5puts, md5int, md5INT, md5unsigned
+#=
 #kernel/ifftw.h:381
 if sizeof(Cuint) >= 4
     typealias md5uint Cuint
@@ -34,7 +35,7 @@ function Base.show(io::IO, m::md5)
     println(" c: $(m.c)")
     println(" l: $(m.l)")
 end
-
+=#
 #static const sintab in kernel/md5.c:32
 #const sintab::NTuple{64, md5uint} = (
 const sintab = (
@@ -125,7 +126,7 @@ end
 
 #void X(md5begin) in kernel/md5.c:110
 function md5begin(p::Ptr{md5})::Void
-    pt = reinterpret(Ptr{md5uint}, p)
+#=    pt = reinterpret(Ptr{md5uint}, p)
     s = sizeof(md5uint)
 
     unsafe_store!(pt,      0x67452301)
@@ -135,13 +136,17 @@ function md5begin(p::Ptr{md5})::Void
 
     pt = reinterpret(Ptr{Cuint}, p + 4*s + 64*sizeof(Cuchar))
 
-    unsafe_store!(pt, Cuint(0))
+    unsafe_store!(pt, Cuint(0))=#
+    ccall(("fftw_md5begin", libfftw),
+          Void,
+          (Ptr{md5},),
+          p)
     return nothing
 end
 
 #void X(md5putc) in kernel/md5.c:119
 function md5putc(p::Ptr{md5}, c::Cuchar)::Void
-    m = unsafe_load(p)
+#=    m = unsafe_load(p)
     i = m.l % 64
     
     pt = reinterpret(Ptr{Cuchar}, p + 4*sizeof(md5uint) + i*sizeof(Cuchar))
@@ -152,13 +157,17 @@ function md5putc(p::Ptr{md5}, c::Cuchar)::Void
         doblock(m.s, Ref(m.c))
     end
     pt = reinterpret(Ptr{md5sig}, p)
-    unsafe_store!(pt, m.s)
+    unsafe_store!(pt, m.s)=#
+    ccall(("fftw_md5putc", libfftw),
+          Void,
+          (Ptr{md5}, Cuchar),
+          p, c)
     return nothing
 end
 
 #void X(md5end) in kernel/md5.c:125
 function md5end(p::Ptr{md5})
-    m = unsafe_load(p)
+#=    m = unsafe_load(p)
     l = 8 * m.l
     
     md5putc(p, 0x80)
@@ -169,16 +178,24 @@ function md5end(p::Ptr{md5})
     for i=1:8
         md5putc(p, l & 0xFF)
         l = l >> 8
-    end
+    end=#
+    ccall(("fftw_md5end", libfftw),
+          Void,
+          (Ptr{md5},),
+          p)
     return nothing
 end
 
 #void X(md5putb) in md5-1.c:24
 function md5putb(p::Ptr{md5}, d_::Ptr{Void}, len::Csize_t)::Void
-    d = reinterpret(Ptr{Cuchar}, d_)
+#=    d = reinterpret(Ptr{Cuchar}, d_)
     for i=1:len
         md5putc(p, unsafe_load(d, i))
-    end
+    end=#
+    ccall(("fftw_md5putb", libfftw),
+          Void,
+          (Ptr{md5}, Ptr{Void}, Csize_t),
+          p, d_, len)
     return nothing
 end
 
@@ -195,55 +212,51 @@ function md5puts(p::Ptr{md5}, s::Ptr{Cchar})::Void
     #  X(md5putc)(p, *s);
     #} while(*s++);
 
-    while true
+#=    while true
         md5putc(p, unsafe_load(s))
         unsafe_load(s) == 0 && break
         s += sizeof(Cchar)
     end
-    s += sizeof(Cchar)
-
+    s += sizeof(Cchar)=#
+    ccall(("fftw_md5puts", libfftw),
+          Void,
+          (Ptr{md5}, Ptr{Cchar}),
+          p, s)
     return nothing
 end
 
+md5puts(p::Ptr{md5}, s::String)::Void = 
+    md5puts(p, Base.unsafe_convert(Ptr{Cchar}, s))
+
+
 #void X(md5int) in md5-1.c:40
-#function md5int(p::Ptr{md5}, i::Cint)::Void
-    
+function md5int(p::Ptr{md5}, i::Cint)::Void
+    ccall(("fftw_md5int", libfftw),
+          Void,
+          (Ptr{md5}, Cint),
+          p, i)
+    return nothing
+end
 
+#void X(md5INT) in md5-1.c:45
+function md5INT(p::Ptr{md5}, i::INT)::Void
+    ccall(("fftw_md5INT", libfftw),
+          Void,
+          (Ptr{md5}, INT),
+          p, i)
+    return nothing
+end
 
+#void X(md5unsigned) in md5-1.c:50
+function md5unsigned(p::Ptr{md5}, i::Cuint)::Void
+    ccall(("fftw_md5unsigned", libfftw),
+          Void,
+          (Ptr{md5}, Cuint),
+          p, i)
+    return nothing
+end
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+md5unsigned(p::Ptr{md5}, i::Integer)::Void =
+    md5unsigned(p, Cuint(i))
 
 

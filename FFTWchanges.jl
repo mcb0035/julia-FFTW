@@ -247,10 +247,10 @@ unsafe_convert(::Type{PlanPtr}, p::FFTWPlan) = p.plan
 #TMP
 unsafe_convert(::Type{Ptr{apiplan}}, p::FFTWPlan) = p.plan
 
-destroy_plan{T<:fftwDouble}(plan::FFTWPlan{T}) =
+destroy_plan{T<:fftwDouble}(plan::FFTWPlan{T}) = destroy_plan(plan.plan)
 #    ccall((:fftw_destroy_plan,libfftw), Void, (PlanPtr,), plan)
 #TMP
-    ccall((:fftw_destroy_plan,libfftw), Void, (Ptr{apiplan},), plan)
+#    ccall((:fftw_destroy_plan,libfftw), Void, (Ptr{apiplan},), plan.plan)
     
 
 destroy_plan{T<:fftwSingle}(plan::FFTWPlan{T}) =
@@ -491,36 +491,17 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
         R = isa(region, Tuple) ? region : copy(region)
         dims, howmany = dims_howmany(X, Y, [size(X)...], R)
 
-        #MINE
-#        systemerror("GURU_KOSHERP failed", !GURU_KOSHERP(Cint(size(dims,2)), Array{Cint,2}(dims), Cint(size(howmany,2)), Array{Cint,2}(howmany)))
+        @assert GURU_KOSHERP(Cint(size(dims,2)), 
+                             convert(Array{INT}, vec(dims)), 
+                             Cint(size(howmany,2)), 
+                             convert(Array{INT}, vec(howmany)))
 
-#=BEGIN TMP
-        println("X: $(typeof(X))\n$X")
-        if isa(Y, FakeArray)
-            dump(Y)
-        else
-            println("Y: $(typeof(X))\n$Y")
-        end
-        println("dims: $(typeof(dims))\n$dims")
-        println("howmany: $(typeof(howmany))\n$howmany")
-        ttest= ccall(($(string(fftw,"_mktensor")),$lib),
+        #MINE
+#=        sz   = ccall(($(string(fftw,"_mktensor_iodims64")),$lib),
                      Ptr{tensor},
-#                     TensPtr,
-                     (Int,),
-                     size(dims,2))
-        println("\nttest: $(typeof(ttest))")
-        show(ttest)
-        ttemp = unsafe_load(ttest)
-        println("\n*ttest: $(typeof(ttemp))")
-        show(ttemp)
-        println("end show test")
-=##END TMP
-        
-        sz   = ccall(($(string(fftw,"_mktensor_iodims")),$lib),
-                     Ptr{tensor},
-#                     TensPtr,
-                     (Cint, Ptr{Cint}, Cint, Cint),
-                     size(dims,2), convert(Array{Cint},vec(dims)), 2, 2)
+                     (Cint, Ptr{INT}, Cint, Cint),
+                     size(dims,2), convert(Array{INT},vec(dims)), 2, 2)=#
+        sz = MKTENSOR_IODIMS(size(dims,2), dims, 2, 2)
 
         print_with_color(:green,"sz:\n") 
         show(sz)
@@ -539,10 +520,12 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
                       (TensPtr, PrintPtr),
                       sz, prnt)
 =##END TMP
-        vecsz= ccall(($(string(fftw,"_mktensor_iodims")),$lib),
+#=        vecsz= ccall(($(string(fftw,"_mktensor_iodims64")),$lib),
                      Ptr{tensor},
-                     (Cint, Ptr{Cint}, Cint, Cint),
-                     size(howmany,2), convert(Array{Cint},vec(howmany)), 2, 2)
+                     (Cint, Ptr{INT}, Cint, Cint),
+                     size(howmany,2), convert(Array{INT},vec(howmany)), 2, 2)=#
+
+        vecsz = MKTENSOR_IODIMS(size(howmany,2), howmany, 2, 2)
 
         print_with_color(:green,"vecsz:\n")
         show(vecsz)
@@ -559,10 +542,15 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
 #        println("ii: $(typeof(ii))\n$ii")
 #        println("ro: $(typeof(ro))\n$ro")
 #        println("io: $(typeof(io))\n$io")
-        prob = ccall(($(string(fftw,"_mkproblem_dft_d")),$lib),
+#=        prob = ccall(($(string(fftw,"_mkproblem_dft_d")),$lib),
                      Ptr{problem_dft},
                      (Ptr{tensor}, Ptr{tensor}, Ptr{$Tr}, Ptr{$Tr}, Ptr{$Tr}, Ptr{$Tr}),
-                     sz, vecsz, ri, ii, ro, io)
+                     sz, vecsz, ri, ii, ro, io)=#
+        prob = mkproblem_dft_d(sz, vecsz, 
+                           TAINT_UNALIGNED(Base.unsafe_convert(Ptr{$Tr}, ri), flags),
+                           TAINT_UNALIGNED(Base.unsafe_convert(Ptr{$Tr}, ii), flags),
+                           TAINT_UNALIGNED(Base.unsafe_convert(Ptr{$Tr}, ro), flags),
+                           TAINT_UNALIGNED(Base.unsafe_convert(Ptr{$Tr}, io), flags))
 #TMP
 #        print_with_color(:green,"problem located at $prob\n")
 #        show(unsafe_load(prob))
@@ -579,8 +567,8 @@ for (Tr,Tc,fftw,lib) in ((:Float64,:Complex128,"fftw",libfftw),
 #        show(aplan)
 #        testplan(aplan)
 
-#        aplan = mkapiplan(Cint(direction), flags, prob)
-        aplan = mkapiplan(Cint(direction), flags, reinterpret(Ptr{problem}, prob))
+        aplan = mkapiplan(Cint(direction), flags, prob)
+#        aplan = mkapiplan(Cint(direction), flags, reinterpret(Ptr{problem}, prob))
 
 #        if (aplan.pln == C_NULL) || (aplan == nothing)
         if  (aplan == C_NULL) || (unsafe_load(aplan).pln == C_NULL )

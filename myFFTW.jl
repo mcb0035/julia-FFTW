@@ -7,10 +7,14 @@ export opcnt, iodim, tensor, solver, slvdesc, flags_t, solution, hashtab
 
 import Base: show, size, copy, isless, ==, convert
 
-include("md5.jl")
 include("types.jl")
+include("Callocs.jl")
+include("dft/problem.jl")
+include("md5.jl")
 include("mapflags.jl")
 include("tensors.jl")
+include("guru.jl")
+include("unittests.jl")
 
 const MAXNAM = 64
 #=
@@ -125,7 +129,7 @@ end
 #function INFEASIBLE_SLVNDX
 #    return (1 << BITS_FOR_SLVNDX) - 1
 #end
-const INFEASIBLE_SLVNDX = (1 << BITS_FOR_SLVNDX) - 1
+#const INFEASIBLE_SLVNDX = (1 << BITS_FOR_SLVNDX) - 1
 #=
 #these macros don't work properly in Julia so write them out
 #FORALL_SOLVERS in kernel/ifftw.h:800

@@ -1,5 +1,6 @@
+export XGURU, MKTENSOR_IODIMS, iodims_kosherp, GURU_KOSHERP, extract_reim
 #dft/dft.h:38
-type problem_dft <: problem
+#=type problem_dft <: problem
     problem_kind::problems
     sz::tensor
     vecsz::tensor
@@ -20,12 +21,35 @@ type problem_dft <: problem
         p = new(PROBLEM_DFT, tensor_compress(sz), tensor_compress_contiguous(vecsz), ri, ii, ro, io)
         return p
     end
+end=#
+
+#macros in api/guru64.h
+#define XGURU(name) X(plan_guru64_ ## name)
+XGURU(name::String) = string("plan_guru64_",name)
+#define IODIM X(iodim64)
+#define MKTENSOR_IODIMS X(mktensor_iodims64)
+#define GURU_KOSHERP X(guru64_kosherp)
+
+#tensor* MKTENSOR_IODIMS in api/mktensor-iodims.h:23
+function MKTENSOR_IODIMS(rank::Cint, dims::Ptr{iodim}, is::Cint, os::Cint)::Ptr{tensor}
+    x = ccall(("fftw_mktensor_iodims64", libfftw),
+              Ptr{tensor},
+              (Cint, Ptr{iodim}, Cint, Cint),
+              rank, dims, is, os)
+    return x
 end
 
-#MKTENSOR_IODIMS in api/mktensor-iodims.h:23
-function MKTENSOR_IODIMS(rank::Int, dims::Array{iodim,1}, is::Int, os::Int)
+function MKTENSOR_IODIMS{T<:Integer}(rank::Integer, dims::Array{T}, is::Integer, os::Integer)::Ptr{tensor}
+    x = ccall(("fftw_mktensor_iodims64", libfftw),
+              Ptr{tensor},
+              (Cint, Ptr{iodim}, Cint, Cint),
+              rank, convert(Array{INT}, vec(dims)), is, os)
+    return x
+end
+
+#=function MKTENSOR_IODIMS(rank::Int, dims::Array{iodim,1}, is::Int, os::Int)
     x = tensor(rank)    
-    if rank != intmax
+    if FINITE_RNK(rank)
         for i=1:rank
             x.dims[i].n = dims[i].n
             x.dims[i].is = dims[i].is * is
@@ -33,30 +57,29 @@ function MKTENSOR_IODIMS(rank::Int, dims::Array{iodim,1}, is::Int, os::Int)
         end
     end
     return x
-end
+end=#
 
-#iodims_kosherp in api/mktensor-iodims.h:38
-function iodims_kosherp(rank::Int, dims::iodim, allow_minfty::Int)
+#static int iodims_kosherp in api/mktensor-iodims.h:38
+function iodims_kosherp(rank::Cint, dims::Ptr{iodim}, allow_minfty::Cint)::Bool
     if rank < 0
         return false
     end
+
     if allow_minfty != 0
-#        if rank == typemax(typeof(rank))
-        if rank == intmax
+        if !FINITE_RNK(rank)
             return true
         end
         for i=1:rank
-            if dims[i].n < 0
+            if unsafe_load(dims, i).n < 0
                 return false
             end
         end
     else
-#        if rank == typemax(typeof(rank))
-        if rank == intmax
+        if !FINITE_RNK(rank)
             return false
         end
         for i=1:rank
-            if dims[i].n <= 0
+            if unsafe_load(dims, i).n <= 0
                 return false
             end
         end
@@ -64,7 +87,29 @@ function iodims_kosherp(rank::Int, dims::iodim, allow_minfty::Int)
     return true
 end
 
-#X(extract_reim) in kernel/extract-reim.c:27
+#int GURU_KOSHERP in api/mktensor-iodims.h:57
+#function GURU_KOSHERP(rank::Cint, dims::Ptr{iodim}, howmany_rank::Cint, howmany_dims::Ptr{iodim})::Bool
+function GURU_KOSHERP(rank::Cint, dims::Array{INT}, howmany_rank::Cint, howmany_dims::Array{INT})::Bool
+    return Bool(ccall(("fftw_guru64_kosherp", libfftw),
+                 Cint,
+                 (Cint, Ptr{INT}, Cint, Ptr{INT}),
+                 rank, dims, howmany_rank, howmany_dims))
+
+#    return iodims_kosherp(rank, dims, 0) && iodims_kosherp(howmany_rank, howmany_dims, 1)
+end
+
+#void X(extract_reim) in kernel/extract-reim.c:27
+function extract_reim(sign::Cint, c::Ptr{R}, r::Ptr{Ptr{R}}, i::Ptr{Ptr{R}})::Void
+   if sign == FFT_SIGN
+       unsafe_store!(r, c)
+       unsafe_store!(i, c + sizeof(R))
+   else
+       unsafe_store!(r, c + sizeof(R))
+       unsafe_store!(i, c)
+   end
+   return nothing
+end
+#=
 function extract_reim(sign::Int, c::Array{Complex{Float}}, r::Array{Float}, i::Array{Float})
    if sign == -1 
        r = real(c)
@@ -75,11 +120,7 @@ function extract_reim(sign::Int, c::Array{Complex{Float}}, r::Array{Float}, i::A
    end
    return nothing
 end
-
-#GURU_KOSHERP in api/mktensor-iodims.h:57
-function GURU_KOSHERP(rank::Int, dims::Array{iodim,1}, howmany_rank::Int, howmany_dims::Array{iodim,1})
-    return iodims_kosherp(rank, dims, 0) && iodims_kosherp(howmany_rank, howmany_dims, 1)
-end
+=#
 
 #XGURU(dft) in api/plan-guru-dft.h:24
 function guru64_dft(rank::Int32, dims::Array{iodim,1}, howmany_rank::Int32, howmany_dims::Array{iodim,1}, inp::Array{Complex128,1}, out::Array{Complex128,1}, sign::Int32, flags::UInt32)

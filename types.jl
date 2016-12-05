@@ -5,6 +5,8 @@ export problems, Wakefulness, Hashtable_info, amnesia, wisdom_state_t, cost_kind
 
 export FFTW_MEASURE, FFTW_DESTROY_INPUT, FFTW_UNALIGNED, FFTW_CONSERVE_MEMORY, FFTW_EXHAUSTIVE, FFTW_PRESERVE_INPUT, FFTW_PATIENT, FFTW_ESTIMATE, FFTW_WISDOM_ONLY, FFTW_ESTIMATE_PATIENT, FFTW_BELIEVE_PCOST, FFTW_NO_DFT_R2HC, FFTW_NO_NONTHREADED, FFTW_NO_BUFFERING, FFTW_NO_INDIRECT_OP, FFTW_ALLOW_LARGE_GENERIC, FFTW_NO_RANK_SPLITS, FFTW_NO_VRANK_SPLITS, FFTW_NO_VRECURSE, FFTW_NO_SIMD, FFTW_NO_SLOW, FFTW_NO_FIXED_RADIX_LARGE_N, FFTW_ALLOW_PRUNING
 
+export alignment_of
+
 #include("md5.jl")
 
 const FFTW_MEASURE                = UInt32(0)
@@ -61,10 +63,10 @@ const FFTW_RODFT11 = 10
 
 #kernel/ifftw.h:566
 @enum(Wakefulness, 
-      SLEEPY            = 0, 
-      AWAKE_ZERO        = 1, 
-      AWAKE_SQRTN_TABLE = 2, 
-      AWAKE_SINCOS      = 3)
+      SLEEPY            = Cint(0), 
+      AWAKE_ZERO        = Cint(1), 
+      AWAKE_SQRTN_TABLE = Cint(2), 
+      AWAKE_SINCOS      = Cint(3))
 
 #kernel/ifftw.h:896
 const TW_COS  = Cint(0)
@@ -119,27 +121,73 @@ const H_LIVE   = 0x4 #entry is nonempty, implies H_VALID
 
 #kernel/ifftw.h:748
 @enum(cost_kind,
-      COST_SUM = 0,
-      COST_MAX = 1)
+      COST_SUM = Cint(0),
+      COST_MAX = Cint(1))
 
 #kernel/ifftw.h:452
 @enum(inplace_kind,
-      INPLACE_IS = 0,
-      INPLACE_OS = 1)
+      INPLACE_IS = Cint(0),
+      INPLACE_OS = Cint(1))
 
 #kernel/ifftw.h:320
 #typealias crude_time Cint
 
+#kernel/ifftw.h:64
+typealias R Cdouble
+
 #kernel/ifftw.h:84
 typealias INT Cptrdiff_t
 
-#use this instead of macros at kernel/ifftw.h:449
-intmax = typemax(Cint)
+#kernel/ifftw.h:91
+const FFT_SIGN = Cint(-1)
+
+#if __WORDSIZE == 64
+#typedef unsigned long int uintptr_t in /usr/include/stdint.h
+typealias Cuintptr_t Culong
+
+#macros in kernel/ifftw.h:449
+const RNK_MINFTY = typemax(Cint)
+FINITE_RNK(rnk) = rnk != RNK_MINFTY
+
 if typeof(1.0) === Float64
     typealias Float Float64
 elseif is(typeof(1.0), Float32)
     typealias Float Float32
 end
+
+#kernel/ifftw.h:381
+if sizeof(Cuint) >= 4
+    typealias md5uint Cuint
+else
+    typealias md5uint Culong
+end
+
+#kernel/ifftw.h:400
+typealias md5sig NTuple{4,md5uint}
+
+#kernel/ifftw.h:409
+type md5
+    s::md5sig
+    c::NTuple{64,Cuchar}
+    l::Cuint
+    function md5()
+        m = new((zeros(md5uint, 4)...), (zeros(Cuchar, 64)...), Cuint(0))
+        return m
+    end
+end
+
+function newmd5()::Ptr{md5}
+    m = Ptr{md5}(malloc(sizeof(md5)))
+    return m
+end
+
+function Base.show(io::IO, m::md5)
+    print_with_color(:yellow,"md5:\n")
+    println(" s: $(m.s)")
+    println(" c: $(m.c)")
+    println(" l: $(m.l)")
+end
+
 
 #macro X in ifftw.h:66
 #function X(name)::String
@@ -241,7 +289,7 @@ type tensor
     #mktensor in kernel/tensor.c:24
 #=    function tensor(r::Cint)
         @assert r >= 0
-        if r != intmax
+        if FINITE_RNK(r)
             t = new(r,fill(iodim(0,0,0),r))
         else
             t = new(r,fill(iodim(0,0,0),0))
@@ -276,6 +324,9 @@ immutable problem_adt
     zero::Ptr{Void}
     print::Ptr{Void}
     destroy::Ptr{Void}
+    function problem_adt(k::problems, h::Ptr{Void}, z::Ptr{Void}, p::Ptr{Void}, d::Ptr{Void})::problem_adt
+        return new(k, h, z, p, d)
+    end
 end
 
 function Base.show(io::IO, p::problem_adt)
@@ -306,10 +357,10 @@ type problem_dft <: problem_a
     super::problem
     sz::Ptr{tensor}
     vecsz::Ptr{tensor}
-    ri::Ptr{Cdouble}
-    ii::Ptr{Cdouble}
-    ro::Ptr{Cdouble}
-    io::Ptr{Cdouble}
+    ri::Ptr{R}
+    ii::Ptr{R}
+    ro::Ptr{R}
+    io::Ptr{R}
 end
 
 function Base.show(io::IO, p::problem_dft)
@@ -320,6 +371,7 @@ function Base.show(io::IO, p::problem_dft)
     show(p.sz)
     println("vecsz:")
     show(p.vecsz)
+    error("fix this for any length")
     println("ri: $(unsafe_wrap(Array{Cdouble}, p.ri, 5))")
     println("ii: $(unsafe_wrap(Array{Cdouble}, p.ii, 5))")
     println("ro: $(unsafe_wrap(Array{Cdouble}, p.ro, 5))")
@@ -563,7 +615,7 @@ end
 #multiple of 8 bits so cannot pack into 64 bits
 const BITS_FOR_TIMELIMIT = Cuint(9)
 const BITS_FOR_SLVNDX = Cuint(12)
-const INFEASIBLE_SLVNDX = 1 << BITS_FOR_SLVNDX - 1
+const INFEASIBLE_SLVNDX = Cuint(1 << BITS_FOR_SLVNDX - 1)
 #=-
 bitstype 20 f_l <: Unsigned
 bitstype 3 f_hash_info <: Unsigned
@@ -1045,6 +1097,73 @@ NO_SIMDP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_SIMD
 NO_CONSERVE_MEMORYP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_CONSERVE_MEMORY
 NO_DHT_R2HCP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_DHT_R2HC
 NO_BUFFERINGP(p::Ptr{planner})::Cuint = PLNR_L(p) & NO_BUFFERING
+
+##if defined(HAVE_SSE2) || defined(HAVE_AVX) #true
+## if defined(FFTW_SINGLE) #false 
+## else
+#macros in simd-support/simd-common.h:31
+const ALIGNMENT = Cuintptr_t(16)
+const ALIGNMENTA = Cuintptr_t(16)
+# endif
+#endif
+
+#macros in simd-support/simd-common.h:58
+const TAINT_BIT = Cuintptr_t(1)
+const TAINT_BITA = Cuintptr_t(2)
+PTRINT(p) = Cuintptr_t(p)
+
+#R* X(taint) in simd-support/taint.c:27
+function taint(p::Ptr{R}, s::INT)::Ptr{R}
+#=    p = ccall(("fftw_taint", libfftw),
+              Ptr{R},
+              (Ptr{R}, INT),
+              p, s)=#
+  
+    if (Cuint(s) * sizeof(R)) % ALIGNMENT != 0
+        p = Ptr{R}(PTRINT(p) | TAINT_BIT)
+    end
+    if (Cuint(s) * sizeof(R)) % ALIGNMENTA != 0
+        p = Ptr{R}(PTRINT(p) | TAINT_BITA)
+    end
+
+    return p
+end
+
+#R* X(join_taint) in simd-support/taint.c
+function join_taint(p1::Ptr{R}, p2::Ptr{R})::Ptr{R}
+#=    p = ccall(("fftw_join_taint", libfftw),
+              Ptr{R},
+              (Ptr{R}, Ptr{R}),
+              p1, p2)=#
+
+    @assert UNTAINT(p1) == UNTAINT(p2) "$p1 != $p2"
+    p = Ptr{R}(PTRINT(p1) | PTRINT(p2))
+
+    return p
+end
+ 
+#macros in kernel/ifftw.h:1055
+TAINT(p::Ptr{R}, s::INT) = taint(p ,s)
+UNTAINT(p::Ptr{R})       = Ptr{R}(Cuintptr_t(p) & ~Cuintptr_t(3))
+TAINTOF(p::Ptr{R})       = Cuintptr_t(p) & 3
+JOIN_TAINT(p1, p2)       = join_taint(p1, p2)
+
+#macro in api/api.h:76
+TAINT_UNALIGNED(p, flg) = TAINT(p, INT(flg & FFTW_UNALIGNED != 0))
+
+#macros in simd-support/simd-common.h:64
+ALIGNED(p) = PTRINT(UNTAINT(p)) % ALIGNMENT == 0 && !(PTRINT(p) & TAINT_BIT)
+
+#nonportable
+const ALGN = Cuintptr_t(16)
+#int X(alignment_of) in kernel/align.c
+function alignment_of(p::Ptr{R})::Cint
+#=    n = ccall(("fftw_alignment_of", libfftw),
+              Cint,
+              (Ptr{R},),
+              p)=#
+    return Cint(Cuintptr_t(p) % ALGN)
+end
 
 include("dftconf.jl")
 

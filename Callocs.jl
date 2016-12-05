@@ -1,18 +1,43 @@
 #Constructors using C memory allocation
 #this is scaffolding that should be removed at some point
+export mkproblem_adt, mkproblem, problem_destroy, mkplan, plan_destroy_internal, plan_null_destroy, plan_awake
 
 #void* X(malloc_plain) in kernel/alloc.c:263
 function malloc_plain(n::Csize_t)::Ptr{Void}
-    n != 0 || n = 1
+    if n == 0
+        n = 1
+    end
     p = Libc.malloc(n)
     return p
 end
 
+function mkproblem_adt(pk::problems, hash::Ptr{Void}, zero::Ptr{Void}, print::Ptr{Void}, destroy::Ptr{Void})::Ptr{problem_adt}
+    padt = Ptr{problem_adt}(malloc(sizeof(problem_adt)))
+    #problem_kind at 0 bytes in problem_adt
+    pt = reinterpret(Ptr{Cint}, padt)
+    unsafe_store!(pt, Cint(pk))
+    #hash at 8 bytes in problem_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 8)
+    unsafe_store!(pt, hash)
+    #zero at 16 bytes in problem_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 16)
+    unsafe_store!(pt, zero)
+    #print at 24 bytes in problem_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 24)
+    unsafe_store!(pt, print)
+    #destroy at 32 bytes in problem_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 32)
+    unsafe_store!(pt, destroy)
+
+    return padt
+end
+
 #problem* X(mkproblem) in kernel/problem.c:25
-function mkproblem(sz::Csize_t, adt::Ptr{problem_adt})::Ptr{problem}
+#function mkproblem(sz::Csize_t, adt::Ptr{problem_adt})::Ptr{problem}
+function mkproblem(sz::Integer, adt::Ptr{problem_adt})::Ptr{problem}
     p = Ptr{problem}(malloc(sz))
-    reinterpret(Ptr{problem_adt}, p)
-    unsafe_store!(p, adt)
+    pt = reinterpret(Ptr{Ptr{problem_adt}}, p)
+    unsafe_store!(pt, adt)
     return p
 end
 
@@ -53,18 +78,77 @@ const padt = problem_adt(PROBLEM_UNSOLVABLE,
 
 the_unsolvable_problem = problem(=#
 
-const prob_adt = problem_adt(PROBLEM_UNSOLVABLE,
+#=unsolvable_padt = problem_adt(PROBLEM_UNSOLVABLE,
                          cfunction(unsolvable_hash, Void, (Ptr{problem}, Ptr{md5})),
                          cfunction(unsolvable_zero, Void, (Ptr{problem})),
                          cfunction(unsolvable_print, Void, (Ptr{problem}, 
                                                             Ptr{printer})),
-                         cfunction(unsolvable_destroy,Void, (Ptr{problem})))
+                         cfunction(unsolvable_destroy,Void, (Ptr{problem})))=#
 
-the_unsolvable_problem = problem(Ref(padt))
+#the_unsolvable_problem = problem(pointer_from_objref(unsolvable_padt))
 
 #problem* X(mkproblem_unsolvable) in kernel/problem.c:75
-function mkproblem_unsolvable() = Ref(the_unsolvable_problem)
+#function mkproblem_unsolvable() = Ref(the_unsolvable_problem)
 
+#plan* X(mkplan) in kernel/plan.c:28
+function mkplan(size::Csize_t, adt::Ptr{plan_adt})
+    p = Ptr{plan}(malloc(size))
+    
+    @assert unsafe_load(adt).destroy != C_NULL
+
+    #plan_adt* adt at 0 bytes in plan
+    pt = reinterpret(Ptr{Ptr{plan_adt}}, p)
+    unsafe_store!(pt, adt)
+
+    #opcnt ops at 8 bytes in plan
+    pt = reinterpret(Ptr{opcnt}, p + 8)
+    ops_zero(pt)
+
+    #double pcost at 40 bytes in plan
+    pt = reinterpret(Ptr{Cdouble}, p + 40)
+    unsafe_store!(pt, zero(Cdouble))
+
+    #enum wakefulness (int) wakefulness at 48 bytes in plan
+    pt = reinterpret(Ptr{Cint}, p + 48)
+    unsafe_store!(pt, Cint(SLEEPY))
+
+    #int could_prune_now_p at 52 bytes in plan
+    pt = reinterpret(Ptr{Cint}, p + 52)
+    unsafe_store!(pt, zero(Cint))
+
+    return p
+end
+
+#void X(plan_destroy_internal) in kernel/plan.c:45
+function plan_destroy_internal(ego::Ptr{plan})
+    if ego != C_NULL
+        @assert unsafe_load(ego).wakefulness == Cint(SLEEPY)
+        destroy = unsafe_load(unsafe_load(ego).adt).destroy
+        ccall(destroy, Void, (Ptr{plan},), ego)
+        free(ego)
+    end
+    return nothing
+end
+
+#void X(plan_null_destroy) in kernel/plan.c:54
+plan_null_destroy(ego::Ptr{plan})::Void = nothing
+
+#void X(plan_awake) in kernel/plan.c:61
+function plan_awake(ego::Ptr{plan}, wakefulness::Cint)::Void
+    if ego != C_NULL
+        @assert Cint(wakefulness == Cint(SLEEPY)) ⊻ (unsafe_load(ego).wakefulness == Cint(SLEEPY)) != 0 "wakefulness: $wakefulness, ego.wakefulness: $(unsafe_load(ego).wakefulness)"
+        awake = unsafe_load(unsafe_load(ego).adt).awake
+        ccall(awake, Void, (Ptr{plan}, Cint), ego, wakefulness)
+
+        #enum wakefulness (int) wakefulness at 48 bytes in plan
+        pt = reinterpret(Ptr{Cint}, ego + 48)
+        unsafe_store!(pt, wakefulness)
+    end
+    return nothing
+end
+
+
+#=
 #planner* X(mkplanner) in kernel/planner.c:911
 function mkplanner()::Ptr{planner}
     #fill planner_adt
@@ -175,7 +259,7 @@ function mkplanner()::Ptr{planner}
     unsafe_store!(pt, Cint(0.0))
 
     return p
-end
+end=#
 
 
 

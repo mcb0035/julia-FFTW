@@ -23,7 +23,7 @@ using Primes
         return p
     end
 end=#
-
+#=
 #MKTENSOR_IODIMS in api/mktensor-iodims.h:23
 function MKTENSOR_IODIMS(rank::Cint, dims::Array{iodim,1}, is::Cint, os::Cint)
     x = tensor(rank)    
@@ -65,9 +65,9 @@ function iodims_kosherp(rank::Cint, dims::Array{Cint,2}, allow_minfty::Cint)
     end
     return true
 end
-
+=#
 #X(extract_reim) in kernel/extract-reim.c:27
-function extract_reim(sign::Cint, c::Array{Complex{Float}})
+function extract_reim(sign::Cint, c::Array{Complex{R}})
    if sign == -1 
        r = real(c)
        i = imag(c)
@@ -77,12 +77,12 @@ function extract_reim(sign::Cint, c::Array{Complex{Float}})
    end
    return (r, i)
 end
-
+#=
 #GURU_KOSHERP in api/mktensor-iodims.h:57
 function GURU_KOSHERP(rank::Cint, dims::Array{Cint,2}, howmany_rank::Cint, howmany_dims::Array{Cint,2})
     return iodims_kosherp(rank, dims, Cint(0)) && iodims_kosherp(howmany_rank, howmany_dims, Cint(1))
 end
-
+=#
 #macros in kernel/planner.c:33
 VALIDP(sol::Ptr{solution})::Cuint = flag(unsafe_load(sol).flags, :h) & H_VALID
 LIVEP(sol::Ptr{solution})::Cuint  = flag(unsafe_load(sol).flags, :h) & H_LIVE
@@ -110,7 +110,7 @@ function jhash(s::Ptr{Cchar})::Cuint
     end
     return h
 end
-
+#=
 function jhash(s::String)::Cuint
     h::Cuint = 0xDEADBEEF
     for i in s 
@@ -118,6 +118,8 @@ function jhash(s::String)::Cuint
     end
     return h * Cuint(17)
 end
+=#
+jhash(s::String)::Cuint = jhash(Base.unsafe_convert(Ptr{Cchar}, s))
 
 #static int subsumes in kernel/planner.c:53
 function subsumes(a::Ptr{flags_t}, slvndx_a::Cuint, b::Ptr{flags_t})::Bool
@@ -149,7 +151,7 @@ random_estimate_seed() = Cuint(0)
 function random_estimate(ego::Ptr{planner}, pln::Ptr{plan}, p::Ptr{problem})::Cdouble
     m = newmd5()
 
-    ccall(("fftw_md5begin", libfftw), 
+#=    ccall(("fftw_md5begin", libfftw), 
           Void, 
           (Ptr{md5},), 
           m)
@@ -160,7 +162,11 @@ function random_estimate(ego::Ptr{planner}, pln::Ptr{plan}, p::Ptr{problem})::Cd
     ccall(("fftw_md5int", libfftw), 
           Void, 
           (Ptr{md5}, Cint), 
-          m, unsafe_load(ego).nthr)
+          m, unsafe_load(ego).nthr)=#
+
+    md5begin(m)
+    md5unsigned(m, random_estimate_seed())
+    md5int(m, unsafe_load(ego).nthr)
 
     padt = unsafe_load(unsafe_load(reinterpret(Ptr{Ptr{problem_adt}}, p)))
 #    ccall(unsafe_load(unsafe_load(p).super.adt).hash, 
@@ -168,7 +174,8 @@ function random_estimate(ego::Ptr{planner}, pln::Ptr{plan}, p::Ptr{problem})::Cd
           Void, 
           (Ptr{problem}, Ptr{md5}),
           p, m)
-    ccall(("fftw_md5putb", libfftw),
+
+#=    ccall(("fftw_md5putb", libfftw),
           Void,
           (Ptr{md5}, Ptr{Void}, Csize_t),
           m, unsafe_load(pln).ops, sizeof(opcnt)) #sizeof(pln.ops)
@@ -179,8 +186,26 @@ function random_estimate(ego::Ptr{planner}, pln::Ptr{plan}, p::Ptr{problem})::Cd
     ccall(("fftw_md5end", libfftw),
           Void,
           (Ptr{md5},),
-          m)
+          m)=#
 
+    #ops at 8 bytes in plan
+    ops = reinterpret(Ptr{opcnt}, pln + 8)
+    md5putb(m, ops, sizeof(unsafe_load(ops)))
+    #adt at 0 bytes in plan
+    adt = reinterpret(Ptr{Ptr{plan_adt}}, pln)
+    md5putb(m, adt, sizeof(unsafe_load(adt)))
+
+    md5end(m)
+
+    if unsafe_load(ego).cost_hook != C_NULL
+        retval = ccall(unsafe_load(ego).cost_hook,
+                       Cdouble,
+                       (Ptr{problem}, Cdouble, Cint),
+                       p, Cdouble(unsafe_load(m).s[1]), Cint(COST_MAX))
+    else
+        retval = Cdouble(unsafe_load(m).s[1])
+    end
+    return retval
 end
 
 #double X(iestimate_cost) in kernel/planner.c:426
@@ -289,9 +314,10 @@ function evaluate_plan(ego::Ptr{planner}, pln::Ptr{plan}, p::Ptr{problem})::Void
 #else
             #pln->pcost = X(iestimate_cost)(ego, pln, p)
             #double pcost at 40 bytes in plan
-            cost = iestimate_cost(ego, 
-                                  reinterpret(Ptr{plan}, pln), 
-                                  reinterpret(Ptr{problem}, p))
+            cost = iestimate_cost(ego, pln, p)
+#            cost = iestimate_cost(ego, 
+#                                  reinterpret(Ptr{plan}, pln), 
+#                                  reinterpret(Ptr{problem}, p))
             pt = reinterpret(Ptr{Cdouble}, pln + 40)
             unsafe_store!(pt, cost)
 
@@ -375,7 +401,7 @@ end
 #static void md5hash in planner.c:170
 #function md5hash(m::Ptr{md5}, p::Ptr{problem_dft}, plnr::Ptr{planner})::Void
 function md5hash(m::Ptr{md5}, p::Ptr{problem}, plnr::Ptr{planner})::Void
-    ccall(("fftw_md5begin", libfftw), 
+#=    ccall(("fftw_md5begin", libfftw), 
           Void, 
           (Ptr{md5},), 
           m)
@@ -386,7 +412,11 @@ function md5hash(m::Ptr{md5}, p::Ptr{problem}, plnr::Ptr{planner})::Void
     ccall(("fftw_md5int", libfftw), 
           Void, 
           (Ptr{md5}, Cint), 
-          m, unsafe_load(plnr).nthr)
+          m, unsafe_load(plnr).nthr)=#
+    md5begin(m)
+    md5unsigned(m, sizeof(R))
+    md5int(m, unsafe_load(plnr).nthr)
+
     padt = unsafe_load(unsafe_load(reinterpret(Ptr{Ptr{problem_adt}}, p)))
 #    ccall(unsafe_load(unsafe_load(p).super.adt).hash, 
     ccall(padt.hash, 
@@ -394,32 +424,38 @@ function md5hash(m::Ptr{md5}, p::Ptr{problem}, plnr::Ptr{planner})::Void
 #          (Ptr{problem_dft}, Ptr{md5}),
           (Ptr{problem}, Ptr{md5}),
           p, m)
-    ccall(("fftw_md5end", libfftw),
+
+#=    ccall(("fftw_md5end", libfftw),
           Void,
           (Ptr{md5},),
-          m)
+          m)=#
+    md5end(m)
     return nothing
 end
 
 #static void signature_of_configuration in kernel/planner.c:138
 function signature_of_configuration(m::Ptr{md5}, ego::Ptr{planner})::Void
-     ccall(("fftw_md5begin", libfftw), 
+#=     ccall(("fftw_md5begin", libfftw), 
           Void, 
           (Ptr{md5},), 
           m)
      ccall(("fftw_md5unsigned", libfftw), 
           Void, 
           (Ptr{md5}, Cuint), 
-          m, sizeof(Cdouble))
+          m, sizeof(Cdouble))=#
+     md5begin(m)
+     md5unsigned(m, sizeof(R))
      @FORALL_SOLVERS(ego, s, sp, begin
-          ccall(("fftw_md5int", libfftw), 
+#=          ccall(("fftw_md5int", libfftw), 
                Void, 
                (Ptr{md5}, Cint), 
                m, unsafe_load(sp).reg_id)
           ccall(("fftw_md5puts", libfftw), 
                Void, 
                (Ptr{md5}, Ptr{Cchar}), 
-               m, unsafe_load(sp).reg_nam)
+               m, unsafe_load(sp).reg_nam)=#
+          md5int(m, unsafe_load(sp).reg_id)
+          md5puts(m, unsafe_load(sp).reg_nam)
      end)
 
 #=    for i = 1:unsafe_load(ego).nslvdesc
@@ -435,10 +471,11 @@ function signature_of_configuration(m::Ptr{md5}, ego::Ptr{planner})::Void
              m, unsafe_load(sp).reg_nam)
     end=#
 
-    ccall(("fftw_md5end", libfftw),
+#=    ccall(("fftw_md5end", libfftw),
           Void,
           (Ptr{md5},),
-          m)
+          m)=#
+    md5end(m)
     return nothing
 end
 
@@ -497,7 +534,17 @@ function check(ht::Ptr{hashtab})::Void
                         #flags_t flags at 16 bytes in solution
                         lflgp  = reinterpret(Ptr{flags_t}, l + 16)
                         l1flgp = reinterpret(Ptr{flags_t}, l1 + 16)
-                        @assert !subsumes(lflgp, SLVNDX(l), l1flgp) "lflgp:\n$(show(unsafe_load(lflgp)))\nl1flgp:\n$(show(unsafe_load(l1flgp)))"
+#                        @assert !subsumes(lflgp, SLVNDX(l), l1flgp) "l:\n$(show(l))\nlflgp:\n$(show(unsafe_load(lflgp)))\nl1flgp:\n$(show(unsafe_load(l1flgp)))"
+                        @assert !subsumes(lflgp, SLVNDX(l), l1flgp) """
+                        l:\n
+                        $(show(l))\n
+                        l1:\n
+                        $(show(l1))\n
+                        lflgp:\n
+                        $(show(unsafe_load(lflgp)))\n
+                        l1flgp:\n
+                        $(show(unsafe_load(l1flgp)))
+                        """
                         @assert !subsumes(l1flgp, SLVNDX(l1), lflgp) "l1flgp:\n$(show(unsafe_load(l1flgp)))\nlflgp:\n$(show(unsafe_load(lflgp)))"
 
                     end
@@ -864,8 +911,8 @@ end
 
 #static solution* htab_lookup in planner.c:203
 function htab_lookup(ht::Ptr{hashtab}, s::md5sig, flagsp::Ptr{flags_t})::Ptr{solution}
-#    print_with_color(70,"begin htab_lookup\n")
-    println(unsafe_load(reinterpret(Ptr{Ptr{solution}}, ht)))
+    print_with_color(70,"htab_lookup: begin\n")
+#    println(unsafe_load(reinterpret(Ptr{Ptr{solution}}, ht)))
     h = h1(ht, s)
     d = h2(ht, s)
     best = Ptr{solution}(C_NULL)
@@ -896,21 +943,21 @@ function htab_lookup(ht::Ptr{hashtab}, s::md5sig, flagsp::Ptr{flags_t})::Ptr{sol
         pt = reinterpret(Ptr{Cint}, ht + 24)
         unsafe_store!(pt, unsafe_load(pt) + 1)
         if VALIDP(l) != 0
-#            print_with_color(70,"htab_lookup: valid l\n")
+            print_with_color(70,"htab_lookup: valid l\n")
             if (LIVEP(l) != 0
               && s == unsafe_load(l).s
               #flags at 16 bytes in solution
               &&subsumes(reinterpret(Ptr{flags_t},l + 16), SLVNDX(l), flagsp))
-#                print_with_color(70,"htab_lookup: live l\n")
+                print_with_color(70,"htab_lookup: live l\n")
                 if (best == C_NULL 
                   || LEQ(flag(unsafe_load(l).flags, :u), 
                   flag(unsafe_load(best).flags, :u)))
-#                    print_with_color(70,"htab_lookup: setting best\n")
+                    print_with_color(70,"htab_lookup: setting best\n")
                     best = l
                 end
             end
         else
-#            print_with_color(70,"htab_lookup: breaking at invalid l\n")
+            print_with_color(70,"htab_lookup: breaking at invalid l\n")
             break
         end
 
@@ -925,13 +972,13 @@ function htab_lookup(ht::Ptr{hashtab}, s::md5sig, flagsp::Ptr{flags_t})::Ptr{sol
         unsafe_store!(pt, unsafe_load(pt) + 1)
     end
 
-#    print_with_color(70,"end htab_lookup\n")
+    print_with_color(70,"htab_lookup: end\n")
     return best
 end
 
 #static solution* hlookup in planner.c:239
 function hlookup(ego::Ptr{planner}, s::md5sig, flagsp::Ptr{flags_t})::Ptr{solution}
-#    print_with_color(202,"begin hlookup\n")
+    print_with_color(202,"hlookup: begin\n")
 #    print_with_color(202,"hlookup: md5sig: $s\n")
 #    print_with_color(202,"hlookup: flagsp:\n")
 #    show(unsafe_load(flagsp))
@@ -947,7 +994,7 @@ function hlookup(ego::Ptr{planner}, s::md5sig, flagsp::Ptr{flags_t})::Ptr{soluti
         pt = reinterpret(Ptr{hashtab}, ego + 160)
         sol = htab_lookup(pt, s, flagsp)
     end
-#    print_with_color(202,"end hlookup\n")
+    print_with_color(202,"hlookup: end\n")
     return sol
 end
 
@@ -1154,7 +1201,7 @@ function search0(ego::Ptr{planner}, p::Ptr{problem}, slvndx::Ptr{Cuint}, flagsp:
             end
 
             if ALLOW_PRUNINGP(ego) != 0 && could_prune_now_p != 0
-                print_with_color(162,"search0: pruning\n")
+#                print_with_color(162,"search0: pruning\n")
                 break
             end
         end
@@ -1298,7 +1345,7 @@ end
 #static plan* mkplan in kernel/planner.c:623
 #function mkplan(ego::Ptr{planner}, p::Ptr{problem_dft})::Ptr{plan_dft}
 function mkplan(ego::Ptr{planner}, p::Ptr{problem})::Ptr{plan}
-#    print_with_color(213,"planner.mkplan: begin\n")
+    print_with_color(213,"planner.mkplan: begin\n")
     pln = Ptr{plan}(C_NULL)
 
     m = newmd5()
@@ -1315,10 +1362,10 @@ function mkplan(ego::Ptr{planner}, p::Ptr{problem})::Ptr{plan}
 
 #    print_with_color(213,"PLNR_L: $(bits(PLNR_L(ego))[end-19:end])\n")
 #    print_with_color(213,"PLNR_U: $(bits(PLNR_U(ego))[end-19:end])\n")
-    @assert LEQ(PLNR_L(ego), PLNR_U(ego))
+    @assert LEQ(PLNR_L(ego), PLNR_U(ego)) "PLNR_L: $(PLNR_L(ego)), PLNR_U: $(PLNR_U(ego))"
     
     if ESTIMATEP(ego) != 0
-#        print_with_color(213,"planner.mkplan: estimate, setting plnr.flags.t = 0\n")
+        print_with_color(213,"planner.mkplan: estimate, setting plnr.flags.t = 0\n")
         #PLNR_TIMELIMIT_IMPATIENCE(ego) = 0
         #flags at 216 bytes in planner
         pt = reinterpret(Ptr{flags_t}, ego + 216)
@@ -1362,7 +1409,7 @@ function mkplan(ego::Ptr{planner}, p::Ptr{problem})::Ptr{plan}
 
     if plnr.wisdom_state != WISDOM_IGNORE_ALL
 #TMP
-#        print_with_color(213,"planner.mkplan: not ignoring wisdom\n")
+        print_with_color(213,"planner.mkplan: not ignoring wisdom\n")
 #        print_with_color(213,"planner.mkplan: md5:\n")
 #        show(unsafe_load(m))
 #        print_with_color(213,"planner.mkplan: flags_of_solution:\n")
@@ -1374,7 +1421,7 @@ function mkplan(ego::Ptr{planner}, p::Ptr{problem})::Ptr{plan}
         if sol != C_NULL
 #        if sol == hlookup(ego, unsafe_load(m).s, 
 #                          Ptr{flags_t}(pointer_from_objref(flags_of_solution)))
-#            print_with_color(213,"planner.mkplan: wisdom acceptable\n")
+            print_with_color(213,"planner.mkplan: wisdom acceptable\n")
             #wisdom is acceptable
             owisdom_state = plnr.wisdom_state
 
@@ -1390,10 +1437,10 @@ function mkplan(ego::Ptr{planner}, p::Ptr{problem})::Ptr{plan}
             if unsafe_load(slvndx) == INFEASIBLE_SLVNDX
 #                print_with_color(213,"planner.mkplan: infeasible slvndx $(unsafe_load(slvndx))\n")
                 if plnr.wisdom_state == WISDOM_IGNORE_INFEASIBLE
-#                    print_with_color(213,"planner.mkplan: ignore infeasible wisdom\n")
+                    print_with_color(213,"planner.mkplan: ignore infeasible wisdom\n")
                     @goto do_search
                 else
-#                    print_with_color(213,"planner.mkplan: returning null plan\n")
+                    print_with_color(213,"planner.mkplan: returning null plan\n")
                     return C_NULL
                 end
             end
@@ -1436,14 +1483,14 @@ function mkplan(ego::Ptr{planner}, p::Ptr{problem})::Ptr{plan}
 
             @goto skip_search
         elseif unsafe_load(ego).nowisdom_hook != C_NULL
-#            print_with_color(213,"planner.mkplan: nowisdom_hook\n")
+            print_with_color(213,"planner.mkplan: nowisdom_hook\n")
             unsafe_load(ego).nowisdom_hook(p)
         end
     end
 
   @label do_search
 #TMP
-#    print_with_color(213,"planner.mkplan: do_search\n")
+    print_with_color(213,"planner.mkplan: do_search\n")
 #    if sol == C_NULL
 #        error("null solution, cannot continue")
 #    end
@@ -1470,7 +1517,7 @@ function mkplan(ego::Ptr{planner}, p::Ptr{problem})::Ptr{plan}
             ff = setflag(ff, :h, flag(ff, :h) | BLESSING)
             unsafe_store!(flags_of_solution, ff)
         else
-#            print_with_color(213,"planner.mkplan: timed out, too impatient to try again -- returning null plan\n")
+            print_with_color(213,"planner.mkplan: timed out, too impatient to try again -- returning null plan\n")
             return C_NULL
         end
     else
@@ -1482,7 +1529,7 @@ function mkplan(ego::Ptr{planner}, p::Ptr{problem})::Ptr{plan}
     end
 
   @label skip_search
-#    print_with_color(213,"planner.mkplan: skip_search\n")
+    print_with_color(213,"planner.mkplan: skip_search\n")
     if unsafe_load(ego).wisdom_state == WISDOM_NORMAL || 
               unsafe_load(ego).wisdom_state == WISDOM_ONLY
 #        fs = Ptr{flags_t}(pointer_from_objref(flags_of_solution))
@@ -1496,10 +1543,12 @@ function mkplan(ego::Ptr{planner}, p::Ptr{problem})::Ptr{plan}
             hinsert(ego, unsafe_load(m).s, flags_of_solution, INFEASIBLE_SLVNDX)
         end
     end
+
+    print_with_color(213,"planner.mkplan: end\n")
     return pln
 
   @label wisdom_is_bogus
-#    print_with_color(213,"planner.mkplan: wisdom_is_bogus\n")
+    print_with_color(213,"planner.mkplan: wisdom_is_bogus\n")
     plan_destroy_internal(pln)
     #wisdom_state at 108 bytes in planner
     pt = reinterpret(Ptr{wisdom_state_t}, ego + 108)
@@ -1518,7 +1567,8 @@ function testplan(ap::Ptr{apiplan})
     prb = unsafe_load(unsafe_load(ap).prb)
     sz = unsafe_load(prb.sz)
     rnk = sz.rnk
-    n = unsafe_load(sz.dims, rnk).n
+    dim = unsafe_load(reinterpret(Ptr{iodim}, prb.sz + 8))
+    n = dim.n
     X = convert(Array{Complex{Float64}}, [1:n;])
     Y = fill(Complex{Float64}(0), n)
     pln_dft = unsafe_load(ap).pln
@@ -1557,7 +1607,7 @@ function testplan(p::Ptr{plan_dft})::Void
     println("$Y")
 end
 
-#force_estimator in api/apiplan.c:45
+#static unsigned force_estimator in api/apiplan.c:45
 function force_estimator(flags::Cuint)::Cuint
     flags &= ~(FFTW_MEASURE | FFTW_PATIENT | FFTW_EXHAUSTIVE)
     return flags | FFTW_ESTIMATE
@@ -1565,7 +1615,7 @@ end
 
 #planner* X(mkplanner) in kernel/planner.c:911
 function mkplanner()::Ptr{planner}
-    print_with_color(58,"mkplanner: begin\n")
+#    print_with_color(58,"mkplanner: begin\n")
     #fill planner_adt
 #=    padt = Ptr{planner_adt}(malloc(sizeof(planner_adt)))
     pt = reinterpret(Ptr{Ptr{Void}}, padt)
@@ -1694,7 +1744,7 @@ function mkplanner()::Ptr{planner}
     pt = reinterpret(Ptr{Cint}, p + 280)
     unsafe_store!(pt, Cint(0.0))
 
-    print_with_color(58,"mkplanner: end\n")
+#    print_with_color(58,"mkplanner: end\n")
     return p
 end
 
@@ -1702,11 +1752,11 @@ fftw = "fftw"
 lib  = FFTWchanges.libfftw
 #for (fftw,lib) in (("fftw",FFTWchanges.libfftw),("fftwf",FFTWchanges.libfftwf))
 
-#mkplan0 in api/apiplan.c:31
+#static plan* mkplan0 in api/apiplan.c:31
 #@eval function mkplan0(plnr::Ptr{planner}, flags::Cuint, prb::Ptr{problem_dft}, hash_info::Cuint, wisdom_state::wisdom_state_t)::Ptr{plan_dft}
 @eval function mkplan0(plnr::Ptr{planner}, flags::Cuint, prb::Ptr{problem}, hash_info::Cuint, wisdom_state::wisdom_state_t)::Ptr{plan}
 #TMP
-    print_with_color(:magenta,"starting mkplan0\n")
+    print_with_color(:magenta,"mkplan0: begin\n")
 #    print_with_color(:magenta,"hash_info: $hash_info\n")
 #    print_with_color(:magenta,"mkplan0: planner flags:\n")
 #    show(unsafe_load(plnr).flags)
@@ -1769,18 +1819,19 @@ lib  = FFTWchanges.libfftw
 #    show(prb)
 #    testplan(reinterpret(Ptr{plan_dft}, pln))
 
+    print_with_color(:magenta,"mkplan0: end\n")
     return pln
 end
 
-#mkplan in api/apiplan.c:51
+#static plan* mkplan in api/apiplan.c:51
 #@eval function mkplan(plnr::planner, flags::Cuint, prb::Ptr{problem}, hash_info::Cuint)::Ptr{plan}
 #@eval function mkplan(plnr::Ptr{planner}, flags::Cuint, prb::Ptr{problem_dft}, hash_info::Cuint)::Ptr{plan_dft}
 @eval function mkplan(plnr::Ptr{planner}, flags::Cuint, prb::Ptr{problem}, hash_info::Cuint)::Ptr{plan}
 #TMP
     print_with_color(90,"starting mkplan\n")
     print_with_color(90,"hash_info: $hash_info\n")
-    print_with_color(90,"mkplan: planner flags:\n")
-    show(unsafe_load(plnr).flags)
+#    print_with_color(90,"mkplan: planner flags:\n")
+#    show(unsafe_load(plnr).flags)
 #    show(unsafe_load(reinterpret(Ptr{flags_t}, plnr + 216)))
 #    print_with_color(:green,$(string("library: ",fftw," ",lib,"\n")))
 
@@ -1830,7 +1881,7 @@ function configure_planner(plnr::Ptr{planner})::Void
     return nothing
 end
 
-#X(mkapiplan) in api/apiplan.c:86
+#apiplan* X(mkapiplan) in api/apiplan.c:86
 #@eval function mkapiplan(sign::Cint, flags::Cuint, prb::Ptr{problem_dft})::Ptr{apiplan}
 @eval function mkapiplan(sign::Cint, flags::Cuint, prb::Ptr{problem})::Ptr{apiplan}
 
@@ -1973,23 +2024,23 @@ end
         println(plndesc)
 #        show(unsafe_load(unsafe_load(papln).pln))
 
-        ccall(($(string(fftw,"_plan_awake")),$lib),
+#=        ccall(($(string(fftw,"_plan_awake")),$lib),
                  Void,
-#                 (Ptr{plan_dft}, Cint),
                  (Ptr{plan}, Cint),
-#                 apln.pln, Cint(AWAKE_SINCOS))
-                 unsafe_load(papln).pln, Cint(AWAKE_SINCOS))
+                 unsafe_load(papln).pln, Cint(AWAKE_SINCOS))=#
+        plan_awake(reinterpret(Ptr{plan},unsafe_load(papln).pln), Cint(AWAKE_SINCOS))
 
-        ccall(($(string(fftw,"_plan_destroy_internal")),$lib),
+#=        ccall(($(string(fftw,"_plan_destroy_internal")),$lib),
                  Void,
-#                 (Ptr{plan_dft},),
                  (Ptr{plan},),
-                 pln)
+                 pln)=#
+        plan_destroy_internal(pln)
     else
-        ccall(($(string(fftw,"_problem_destroy")),$lib),
+#=        ccall(($(string(fftw,"_problem_destroy")),$lib),
                  Void,
                  (Ptr{problem},),
-                 prb)
+                 prb)=#
+        problem_destroy(prb)
     end
 #TMP
     print_with_color(:cyan,"mkapiplan: end\n")
@@ -1998,6 +2049,15 @@ end
     return papln
 end
 #end #for (fftw,lib)
+
+#void X(destroy_plan) in apiplan.c:163
+function destroy_plan(p::Ptr{apiplan})::Void
+    plan_awake(reinterpret(Ptr{plan}, unsafe_load(p).pln), Cint(SLEEPY))
+    plan_destroy_internal(reinterpret(Ptr{plan}, unsafe_load(p).pln))
+    problem_destroy(reinterpret(Ptr{problem}, unsafe_load(p).prb))
+    free(p)
+    return nothing
+end
 
 
 #=
