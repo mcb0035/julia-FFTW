@@ -1,5 +1,66 @@
 #dft/problem.c
 
+function mkproblem_adt(pk::problems, hash::Ptr{Void}, zero::Ptr{Void}, print::Ptr{Void}, destroy::Ptr{Void})::Ptr{problem_adt}
+    padt = Ptr{problem_adt}(malloc(sizeof(problem_adt)))
+    #problem_kind at 0 bytes in problem_adt
+    pt = reinterpret(Ptr{Cint}, padt)
+    unsafe_store!(pt, Cint(pk))
+    #hash at 8 bytes in problem_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 8)
+    unsafe_store!(pt, hash)
+    #zero at 16 bytes in problem_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 16)
+    unsafe_store!(pt, zero)
+    #print at 24 bytes in problem_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 24)
+    unsafe_store!(pt, print)
+    #destroy at 32 bytes in problem_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 32)
+    unsafe_store!(pt, destroy)
+
+    return padt
+end
+
+#problem* X(mkproblem) in kernel/problem.c:25
+#function mkproblem(sz::Csize_t, adt::Ptr{problem_adt})::Ptr{problem}
+function mkproblem(sz::Integer, adt::Ptr{problem_adt})::Ptr{problem}
+    p = Ptr{problem}(malloc(sz))
+    pt = reinterpret(Ptr{Ptr{problem_adt}}, p)
+    unsafe_store!(pt, adt)
+    return p
+end
+
+#void X(problem_destroy) in kernel/problem.c:34
+function problem_destroy(ego::Ptr{problem})::Void
+    if ego != C_NULL
+        destroy = unsafe_load(unsafe_load(ego).adt).destroy
+        ccall(destroy, Void, (Ptr{problem},), ego)
+    end
+    return nothing
+end
+
+#static void unsolvable_destroy in kernel/problem.c:41
+function unsolvable_destroy(ego::Ptr{problem})::Void
+    return nothing
+end
+
+#static void unsolvable_hash in kernel/problem.c:46
+function unsolvable_hash(p::Ptr{problem}, m::Ptr{md5})::Void
+    md5puts(m, "unsolvable")
+    return nothing
+end
+
+#static void unsolvable_print in kernel/problem.c:52
+function unsolvable_print(ego::Ptr{problem}, p::Ptr{printer})::Void
+    unsafe_load(p).print(p, "unsolvable")
+    return nothing
+end
+
+#static void unsolvable_zero in kernel/problem.c:58
+function unsolvable_zero(ego::Ptr{problem})::Void
+    return nothing
+end
+
 #static void destroy in dft/problem.c:25
 function destroy(ego_::Ptr{problem})::Void
     ego = reinterpret(Ptr{problem_dft}, ego_)
@@ -54,7 +115,7 @@ function zero(ego_::Ptr{problem})::Void
 end
 
 #static const problem_adt padt in dft/problem.c:68
-const padt = mkproblem_adt(PROBLEM_DFT,
+const padt_dft = mkproblem_adt(PROBLEM_DFT,
                            cfunction(hash, Void, (Ptr{problem}, Ptr{md5})),
                            cfunction(zero, Void, (Ptr{problem}, Ptr{md5})),
                            C_NULL,
@@ -82,7 +143,7 @@ function mkproblem_dft(sz::Ptr{tensor}, vecsz::Ptr{tensor}, ri::Ptr{R}, ii::Ptr{
         end
     end
 
-    ego = Ptr{problem_dft}(mkproblem(sizeof(problem_dft), padt))    
+    ego = Ptr{problem_dft}(mkproblem(sizeof(problem_dft), padt_dft))    
 
     #sz at 8 bytes in problem_dft
     pt = reinterpret(Ptr{Ptr{tensor}}, ego + 8)

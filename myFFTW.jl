@@ -1,22 +1,23 @@
 #module myFFTW
 
 #export enums
-export problems, Wakefulness, Patience, Hashtable_info, amnesia, wisdom_state_t, cost_kind
+#export problems, Wakefulness, Patience, Hashtable_info, amnesia, wisdom_state_t, cost_kind
 #export types
-export opcnt, iodim, tensor, solver, slvdesc, flags_t, solution, hashtab
+#export opcnt, iodim, tensor, solver, slvdesc, flags_t, solution, hashtab
 
-import Base: show, size, copy, isless, ==, convert
+#import Base: show, size, copy, isless, ==, convert
 
-include("types.jl")
-include("Callocs.jl")
-include("dft/problem.jl")
-include("md5.jl")
-include("mapflags.jl")
-include("tensors.jl")
-include("guru.jl")
-include("unittests.jl")
+include("$FFTWDIR/kernel/types.jl")
+include("$FFTWDIR/Callocs.jl")
+#include("$FFTWDIR/dft/problem.jl")
+#include("$FFTWDIR/kernel/md5.jl")
+include("$FFTWDIR/api/mapflags.jl")
+#include("$FFTWDIR/kernel/tensors.jl")
+include("$FFTWDIR/guru.jl")
+include("$FFTWDIR/api/print-plan.jl")
+include("$FFTWDIR/unittests.jl")
 
-const MAXNAM = 64
+#const MAXNAM = 64
 #=
 #rehash in kernel/planner.c:292
 function rehash(ht::hashtab, nsiz::Cuint)
@@ -153,6 +154,7 @@ macro FORALL_SOLVERS_OF_KIND(kind, ego, s, p, what)
 end
 =#
 #functions
+#=
 #using Primes.isprime
 #X(next_prime) in kernel/primes.c:144
 function next_prime(n::Cint)
@@ -160,7 +162,7 @@ function next_prime(n::Cint)
         n += 1
     end
     return n
-end
+end=#
 #=
 #A subsumes B
 #subsumes in kernel/planner.c:53
@@ -482,6 +484,6 @@ function forget(ego::planner, a::amnesia)
     return nothing
 end=#
 =#
-include("planner.jl")
+include("$FFTWDIR/kernel/planner.jl")
 
 #end #module myFFTW

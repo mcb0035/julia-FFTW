@@ -1,6 +1,6 @@
 #Constructors using C memory allocation
 #this is scaffolding that should be removed at some point
-export mkproblem_adt, mkproblem, problem_destroy, mkplan, plan_destroy_internal, plan_null_destroy, plan_awake
+#export mkproblem_adt, mkproblem, problem_destroy, mkplan, plan_destroy_internal, plan_null_destroy, plan_awake
 
 #void* X(malloc_plain) in kernel/alloc.c:263
 function malloc_plain(n::Csize_t)::Ptr{Void}
@@ -10,7 +10,7 @@ function malloc_plain(n::Csize_t)::Ptr{Void}
     p = Libc.malloc(n)
     return p
 end
-
+#=
 function mkproblem_adt(pk::problems, hash::Ptr{Void}, zero::Ptr{Void}, print::Ptr{Void}, destroy::Ptr{Void})::Ptr{problem_adt}
     padt = Ptr{problem_adt}(malloc(sizeof(problem_adt)))
     #problem_kind at 0 bytes in problem_adt
@@ -70,7 +70,7 @@ end
 #static void unsolvable_zero in kernel/problem.c:58
 function unsolvable_zero(ego::Ptr{problem})::Void
     return nothing
-end
+end=#
 #=
 #static const padt in kernel/problem.c:63
 const padt = problem_adt(PROBLEM_UNSOLVABLE,
@@ -90,6 +90,78 @@ the_unsolvable_problem = problem(=#
 #problem* X(mkproblem_unsolvable) in kernel/problem.c:75
 #function mkproblem_unsolvable() = Ref(the_unsolvable_problem)
 
+function plan_adt(s::Function, a::Function, p::Function, d::Function)
+    padt = new(cfunction(s, Void, (Ptr{plan}, Ptr{problem})),
+               cfunction(a, Void, (Ptr{plan}, Cint)),
+               cfunction(p, Void, (Ptr{plan}, Ptr{printer})),
+               cfunction(d, Void, (Ptr{plan},)))
+    return padt
+end
+
+function mkplan_adt(s::Function, a::Function, p::Function, d::Function)::Ptr{plan_adt}
+    padt = Ptr{plan_adt}(malloc(sizeof(plan_adt)))
+
+    pt = reinterpret(Ptr{Ptr{Void}}, padt)
+    unsafe_store!(pt, cfunction(s, Void, (Ptr{plan}, Ptr{problem})))
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 8)
+    unsafe_store!(pt, cfunction(a, Void, (Ptr{plan}, Cint)))
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 16)
+    unsafe_store!(pt, cfunction(p, Void, (Ptr{plan}, Ptr{printer})))
+    pt = reinterpret(Ptr{Ptr{Void}}, padt + 24)
+    unsafe_store!(pt, cfunction(d, Void, (Ptr{plan},)))
+
+    return padt
+end
+#=
+function mksolver_adt(p::problems, mkp::Function, des::Function)::Ptr{solver_adt}
+    sadt = Ptr{solver_adt}(malloc(sizeof(solver_adt)))
+    #problems (int) p at 0 bytes in solver_adt
+    pt = reinterpret(Ptr{Cint}, sadt)
+    unsafe_store!(pt, Cint(p))
+    #void* mkplan at 8 bytes in solver_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, sadt + 8)
+    unsafe_store!(pt, cfunction(mkp, Ptr{plan}, (Ptr{solver}, Ptr{problem}, Ptr{planner})))
+    #void* destroy at 16 bytes in solver_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, sadt + 16)
+    unsafe_store!(pt, cfunction(des, Void, (Ptr{solver},)))
+
+    return sadt
+end
+
+function mksolver_adt(p::problems, mkp::Function, des::Ptr{Void})::Ptr{solver_adt}
+    sadt = Ptr{solver_adt}(malloc(sizeof(solver_adt)))
+    #problems (int) p at 0 bytes in solver_adt
+    pt = reinterpret(Ptr{Cint}, sadt)
+    unsafe_store!(pt, Cint(p))
+    #void* mkplan at 8 bytes in solver_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, sadt + 8)
+    unsafe_store!(pt, cfunction(mkp, Ptr{plan}, (Ptr{solver}, Ptr{problem}, Ptr{planner})))
+    #void* destroy at 16 bytes in solver_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, sadt + 16)
+    unsafe_store!(pt, des)
+
+#    print_with_color(:blue, "mksolver_adt: solver_adt:\n")
+#    show(unsafe_load(sadt))
+    return sadt
+end
+
+function mksolver_adt(p::problems, mkp::Ptr{Void}, des::Ptr{Void})::Ptr{solver_adt}
+    sadt = Ptr{solver_adt}(malloc(sizeof(solver_adt)))
+    #problems (int) p at 0 bytes in solver_adt
+    pt = reinterpret(Ptr{Cint}, sadt)
+    unsafe_store!(pt, Cint(p))
+    #void* mkplan at 8 bytes in solver_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, sadt + 8)
+    unsafe_store!(pt, mkp)
+    #void* destroy at 16 bytes in solver_adt
+    pt = reinterpret(Ptr{Ptr{Void}}, sadt + 16)
+    unsafe_store!(pt, des)
+
+#    print_with_color(:blue, "mksolver_adt: solver_adt:\n")
+#    show(unsafe_load(sadt))
+    return sadt
+end
+=#
 #plan* X(mkplan) in kernel/plan.c:28
 function mkplan(size::Csize_t, adt::Ptr{plan_adt})
     p = Ptr{plan}(malloc(size))
@@ -106,7 +178,7 @@ function mkplan(size::Csize_t, adt::Ptr{plan_adt})
 
     #double pcost at 40 bytes in plan
     pt = reinterpret(Ptr{Cdouble}, p + 40)
-    unsafe_store!(pt, zero(Cdouble))
+    unsafe_store!(pt, Cdouble(0))
 
     #enum wakefulness (int) wakefulness at 48 bytes in plan
     pt = reinterpret(Ptr{Cint}, p + 48)
@@ -114,11 +186,45 @@ function mkplan(size::Csize_t, adt::Ptr{plan_adt})
 
     #int could_prune_now_p at 52 bytes in plan
     pt = reinterpret(Ptr{Cint}, p + 52)
-    unsafe_store!(pt, zero(Cint))
+    unsafe_store!(pt, Cint(0))
 
     return p
 end
 
+#plan* X(mkplan_d) in kernel/planner.c:969
+function mkplan_d(ego::Ptr{planner}, p::Ptr{problem})::Ptr{plan}
+#    pln = unsafe_load(unsafe_load(ego).adt).mkplan(ego, p)
+    pln = ccall(unsafe_load(unsafe_load(ego).adt).mkplan,
+                Ptr{plan},
+                (Ptr{planner}, Ptr{problem}),
+                ego, p)
+    problem_destroy(p)
+    return pln
+end
+
+#like mkplan_d but sets/resets flags as well
+#plan* X(mkplan_f_d) in kernel/planner.c:976
+function mkplan_f_d(ego::Ptr{planner}, p::Ptr{problem}, l_set::Cuint, u_set::Cuint, u_reset::Cuint)::Ptr{plan}
+    oflags = unsafe_load(ego).flags
+
+    u = (PLNR_U(ego) & ~u_reset) | u_set | l_set
+    l = (PLNR_L(ego) & ~u_reset) | l_set
+    ff = setflag(oflags, :u, u)
+    ff = setflag(ff, :l, l)
+    
+    #flags_t flags at 216 bytes in planner
+    pt = reinterpret(Ptr{flags_t}, ego + 216)
+    unsafe_store!(pt, ff)
+    
+    pln = mkplan_d(ego, p)
+    unsafe_store!(pt, oflags)
+    return pln
+end
+
+
+    
+
+#=
 #void X(plan_destroy_internal) in kernel/plan.c:45
 function plan_destroy_internal(ego::Ptr{plan})
     if ego != C_NULL
@@ -128,7 +234,7 @@ function plan_destroy_internal(ego::Ptr{plan})
         free(ego)
     end
     return nothing
-end
+end=#
 
 #void X(plan_null_destroy) in kernel/plan.c:54
 plan_null_destroy(ego::Ptr{plan})::Void = nothing
@@ -260,6 +366,34 @@ function mkplanner()::Ptr{planner}
 
     return p
 end=#
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -90,7 +90,8 @@ fakesimilar(flags, X, T) = flags & FFTW_ESTIMATE != 0 ? FakeArray(T, size(X)) : 
 alignment_of(A::FakeArray) = Int32(0)
 
 #MINE
-include("myFFTW.jl")
+const FFTWDIR = "/home/qm4/tests"
+include("$FFTWDIR/myFFTW.jl")
 
 
 ## Julia wrappers around FFTW functions
@@ -989,6 +990,6 @@ function *{T,K}(p::r2rFFTWPlan{T,K,true}, x::StridedArray{T})
     return x
 end
 
-include("dct.jl")
+include("$FFTWDIR/dct.jl")
 
 end # module
