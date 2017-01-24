@@ -81,4 +81,44 @@ Unfortunately, many FFTW structures contain other structures as fields, and thes
     julia> unsafe_load(pb)
     D(A(1,3.0,3),4)                           #field of A changed even though A is immutable
     
-Obviously, this is incredibly unsafe and not portable in the slightest.  
+Obviously, this is incredibly unsafe and not portable in the slightest, but it is the only way to ensure a compatible memory layout with C.  However, this is only scaffolding, necessary to interface with FFTW C functions that use these structures.  The codelets only take real arrays and integer values, so once everything else is written in Julia this can be refactored.
+
+### Packed structs
+FFTW stores flags in a data type `flags_t`, packed to fit in 64 bits:
+
+    typedef struct {
+        unsigned l:20;
+        unsigned hash_info:3;
+    #define BITS_FOR_TIMELIMIT 9
+        unsigned timelimit_impatience:BITS_FOR_TIMELIMIT;
+        unsigned u:20;
+    #define BITS_FOR_SLVNDX 12
+        unsigned slvndx:BITS_FOR_SLVNDX;
+    } flags_t;
+    
+Packed structs are not currently supported in Julia, so instead I created a `bitstype` for `flags_t` with the same layout as in C, and methods `flag` and `setflag` to get and set its fields using bit shifts and masks.  This may need to be done differently on different machines.  
+
+### Struct hack
+Transform dimensions are described by the `tensor` struct:
+    
+    typedef struct {
+         INT n;
+         INT is;			/* input stride */
+         INT os;			/* output stride */
+    } iodim;
+    
+    typedef struct {
+         int rnk;
+    #if defined(STRUCT_HACK_KR)
+         iodim dims[1];
+    #elif defined(STRUCT_HACK_C99)
+         iodim dims[];
+    #else
+         iodim *dims;
+    #endif
+    } tensor;
+
+With either `STRUCT_HACK` defined, `tensor` is of variable length with the `iodim`s appended to the end.  Julia does not currently support variable length structs, so attempting to access the `dims` field directly results in a segfault.  However, all elements can be accessed using explicit memory offsets as described above.  This is cumbersome enough that I have not ported some of the functions in `fftw/kernel/tensor#.c`.  These functions are defined in `julia-fftw/kernel/tensor.jl` as `ccall` wrappers for the C functions.
+
+### C function pointers and Julia callbacks
+Many FFTW structs contain function pointers.  Julia currently has an abstract `Function` type, but currently has no way to specify the function signature.  Julia functions can be used to create C function pointers with `cfunction`, but the resulting pointer must called with `ccall`.  A recent change broke these callbacks by adding a "world counter", which increments at every new method definition.  A C function defined in a certain "world age" causes an error if called in a later world age.  The current workaround is to wrap these function calls in `eval` to regenerate the function in the current world age.  However, it should be possible to refactor the code so that C function pointers and `ccall` are no longer needed since `Function` is the same size as a pointer.  I have been waiting for the Julia developers to decide how to implement function signatures before doing too much with the `Function` type.
